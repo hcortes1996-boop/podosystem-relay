@@ -1,0 +1,21 @@
+{
+  "name": "podosystem-relay",
+  "version": "1.0.0",
+  "description": "Servidor relay de citas online para PodoSystem — conecta webs de clínicas con la app de escritorio",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.8.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.4.1",
+    "nanoid": "^3.3.7"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
