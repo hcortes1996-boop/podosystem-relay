@@ -51,6 +51,41 @@ function initDB() {
       fecha     TEXT NOT NULL,   -- YYYY-MM-DD
       PRIMARY KEY (clinicaId, fecha)
     );
+
+    -- Configuración de agenda publicada (horario, slots, días)
+    CREATE TABLE IF NOT EXISTS agenda_config (
+      clinicaId   TEXT PRIMARY KEY REFERENCES clinicas(id),
+      config      TEXT NOT NULL DEFAULT '{}',
+      updatedAt   TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    -- Citas ya ocupadas (sincronizadas desde PodoSystem + reservas web)
+    CREATE TABLE IF NOT EXISTS citas_ocupadas (
+      clinicaId TEXT NOT NULL REFERENCES clinicas(id),
+      fecha     TEXT NOT NULL,   -- YYYY-MM-DD
+      hora      TEXT NOT NULL,   -- HH:MM
+      duracion  INTEGER NOT NULL DEFAULT 30,
+      PRIMARY KEY (clinicaId, fecha, hora)
+    );
+
+    -- Reservas directas desde la web (confirmadas al instante)
+    CREATE TABLE IF NOT EXISTS reservas (
+      id            TEXT PRIMARY KEY,
+      clinicaId     TEXT NOT NULL REFERENCES clinicas(id),
+      fecha         TEXT NOT NULL,
+      hora          TEXT NOT NULL,
+      duracion      INTEGER NOT NULL DEFAULT 30,
+      nombre        TEXT NOT NULL,
+      telefono      TEXT NOT NULL,
+      email         TEXT,
+      motivo        TEXT,
+      observaciones TEXT,
+      estado        TEXT NOT NULL DEFAULT 'pendiente_pc',
+      creadaEn      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_reservas_clinica_estado
+      ON reservas(clinicaId, estado, creadaEn DESC);
   `);
 
   return db;

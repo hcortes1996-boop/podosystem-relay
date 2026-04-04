@@ -32,6 +32,7 @@ app.use('/api', require('./routes/public'));
 app.use('/api', require('./routes/registro'));
 app.use('/api', require('./routes/clinica'));
 app.use('/api', require('./routes/bloqueos'));
+app.use('/api', require('./routes/agenda'));
 
 // Widget embebible como archivo estático
 app.use('/widget', express.static('widget'));
@@ -69,4 +70,5 @@ const PORT = process.env.PORT || 3010;
 app.listen(PORT, () => {
   console.log(`[podosystem-relay] Escuchando en puerto ${PORT}`);
   console.log(`[podosystem-relay] Base de datos: ${process.env.DB_PATH || './relay.db'}`);
+  console.log(`[podosystem-relay] REGISTRO_SECRET cargado: "${process.env.REGISTRO_SECRET || '(no definido)'}"`);
 });
