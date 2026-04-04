@@ -85,6 +85,18 @@ function slotLibres(slots, ocupadas, duracion) {
   });
 }
 
+/* ── Helper: sumar N días hábiles según horario ───────────────── */
+function sumarDiasHabiles(base, nDias, horario) {
+  const d = new Date(base);
+  let sumados = 0;
+  while (sumados < nDias) {
+    d.setDate(d.getDate() + 1);
+    const dia = String(d.getDay());
+    if (horario[dia] && horario[dia].length > 0) sumados++;
+  }
+  return d;
+}
+
 /* ── Días disponibles (público) ───────────────────────────────── */
 router.get('/dias-disponibles/:clinicaId', (req, res) => {
   const clinica = req.db
@@ -99,36 +111,43 @@ router.get('/dias-disponibles/:clinicaId', (req, res) => {
   if (!row) return res.json({ ok: true, dias: [] });
 
   const cfg = JSON.parse(row.config);
-  const { duracionSlot = 30, diasMin = 2, diasMax = 14, horario = {} } = cfg;
+  const { duracionSlot = 30, diasMin = 1, diasMax = 14, horario = {} } = cfg;
 
   const diasDisponibles = [];
   const hoy = new Date();
 
-  for (let i = diasMin; i <= diasMax; i++) {
-    const d = new Date(hoy);
-    d.setDate(hoy.getDate() + i);
-    const fechaStr = d.toISOString().slice(0, 10);
-    const diaSemana = String(d.getDay()); // 0=Dom
+  // Calcular ventana en días hábiles
+  const fechaInicio = diasMin > 0 ? sumarDiasHabiles(hoy, diasMin, horario) : new Date(hoy);
+  const fechaFin    = sumarDiasHabiles(hoy, diasMax, horario);
+
+  const cursor = new Date(fechaInicio);
+  cursor.setHours(12, 0, 0, 0);
+  fechaFin.setHours(12, 0, 0, 0);
+
+  while (cursor <= fechaFin) {
+    const fechaStr = cursor.toISOString().slice(0, 10);
+    const diaSemana = String(cursor.getDay());
 
     const franjas = horario[diaSemana] || [];
-    if (franjas.length === 0) continue;
+    if (franjas.length > 0) {
+      // Comprobar si está bloqueada
+      const bloqueada = req.db
+        .prepare('SELECT 1 FROM bloqueos WHERE clinicaId = ? AND fecha = ?')
+        .get(req.params.clinicaId, fechaStr);
 
-    // Comprobar si está bloqueada
-    const bloqueada = req.db
-      .prepare('SELECT 1 FROM bloqueos WHERE clinicaId = ? AND fecha = ?')
-      .get(req.params.clinicaId, fechaStr);
-    if (bloqueada) continue;
-
-    // Calcular si hay algún hueco libre
-    const todosSlots = generarSlots(franjas, duracionSlot);
-    const ocupadas = req.db
-      .prepare('SELECT hora, duracion FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ?')
-      .all(req.params.clinicaId, fechaStr);
-    const libres = slotLibres(todosSlots, ocupadas, duracionSlot);
-
-    if (libres.length > 0) {
-      diasDisponibles.push({ fecha: fechaStr, huecos: libres.length });
+      if (!bloqueada) {
+        const todosSlots = generarSlots(franjas, duracionSlot);
+        const ocupadas = req.db
+          .prepare('SELECT hora, duracion FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ?')
+          .all(req.params.clinicaId, fechaStr);
+        const libres = slotLibres(todosSlots, ocupadas, duracionSlot);
+        if (libres.length > 0) {
+          diasDisponibles.push({ fecha: fechaStr, huecos: libres.length });
+        }
+      }
     }
+
+    cursor.setDate(cursor.getDate() + 1);
   }
 
   res.json({ ok: true, dias: diasDisponibles, duracionSlot, diasMin, diasMax });
