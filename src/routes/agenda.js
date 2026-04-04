@@ -307,10 +307,11 @@ router.get('/semana/:clinicaId', (req, res) => {
       const todosSlots = generarSlots(franjas, duracionSlot);
       if (enVentana && !bloqueada) {
         const ocupadas = req.db
-          .prepare('SELECT hora FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ?')
+          .prepare('SELECT hora, duracion FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ?')
           .all(req.params.clinicaId, fechaStr);
-        const ocupadasSet = new Set(ocupadas.map(o => o.hora));
-        slots = todosSlots.map(hora => ({ hora, libre: !ocupadasSet.has(hora) }));
+        const libresArray = slotLibres(todosSlots, ocupadas, duracionSlot);
+        const libresSet = new Set(libresArray);
+        slots = todosSlots.map(hora => ({ hora, libre: libresSet.has(hora) }));
       } else {
         // Día laboral pero fuera de ventana o bloqueado → todo ocupado/no disponible
         slots = todosSlots.map(hora => ({ hora, libre: false, motivo: bloqueada ? 'bloqueado' : 'fuera_ventana' }));
