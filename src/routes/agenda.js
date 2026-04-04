@@ -251,6 +251,95 @@ router.post('/reservar-slot', (req, res) => {
   }
 });
 
+/* ── Vista semanal con estado de slots (público) ──────────────── */
+// GET /api/semana/:clinicaId?semana=YYYY-MM-DD
+// Returns full week slot grid with libre/ocupado status
+router.get('/semana/:clinicaId', (req, res) => {
+  const clinica = req.db
+    .prepare('SELECT id FROM clinicas WHERE id = ? AND activa = 1')
+    .get(req.params.clinicaId);
+  if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
+
+  const row = req.db
+    .prepare('SELECT config FROM agenda_config WHERE clinicaId = ?')
+    .get(req.params.clinicaId);
+  if (!row) return res.json({ ok: true, dias: [], duracionSlot: 30, semanaInicio: null });
+
+  const cfg = JSON.parse(row.config);
+  const { duracionSlot = 30, diasMin = 1, diasMax = 14, horario = {} } = cfg;
+
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+
+  // Ventana de reserva en días hábiles
+  const fechaInicio = diasMin > 0 ? sumarDiasHabiles(hoy, diasMin, horario) : new Date(hoy);
+  const fechaFin    = sumarDiasHabiles(hoy, diasMax, horario);
+  fechaInicio.setHours(12, 0, 0, 0);
+  fechaFin.setHours(12, 0, 0, 0);
+
+  // Semana solicitada (parámetro ?semana=YYYY-MM-DD, sino semana actual)
+  let semanaInicio = new Date(hoy);
+  if (req.query.semana && /^\d{4}-\d{2}-\d{2}$/.test(req.query.semana)) {
+    semanaInicio = new Date(req.query.semana + 'T12:00:00Z');
+  }
+  // Ajustar al lunes de esa semana
+  const dow = semanaInicio.getUTCDay();
+  semanaInicio.setUTCDate(semanaInicio.getUTCDate() - (dow === 0 ? 6 : dow - 1));
+  semanaInicio.setHours(12, 0, 0, 0);
+
+  const NOMBRES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  const dias = [];
+
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(semanaInicio);
+    d.setDate(semanaInicio.getDate() + i);
+    d.setHours(12, 0, 0, 0);
+    const fechaStr = d.toISOString().slice(0, 10);
+    const diaSemana = String(d.getDay());
+    const franjas = horario[diaSemana] || [];
+
+    const enVentana = d >= fechaInicio && d <= fechaFin;
+    const bloqueada = !!req.db
+      .prepare('SELECT 1 FROM bloqueos WHERE clinicaId = ? AND fecha = ?')
+      .get(req.params.clinicaId, fechaStr);
+
+    let slots = [];
+    if (franjas.length > 0) {
+      const todosSlots = generarSlots(franjas, duracionSlot);
+      if (enVentana && !bloqueada) {
+        const ocupadas = req.db
+          .prepare('SELECT hora FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ?')
+          .all(req.params.clinicaId, fechaStr);
+        const ocupadasSet = new Set(ocupadas.map(o => o.hora));
+        slots = todosSlots.map(hora => ({ hora, libre: !ocupadasSet.has(hora) }));
+      } else {
+        // Día laboral pero fuera de ventana o bloqueado → todo ocupado/no disponible
+        slots = todosSlots.map(hora => ({ hora, libre: false, motivo: bloqueada ? 'bloqueado' : 'fuera_ventana' }));
+      }
+    }
+
+    dias.push({
+      fecha: fechaStr,
+      nombre: NOMBRES[d.getDay()],
+      dia: d.getDate(),
+      mes: d.getMonth() + 1,
+      diaSemana,
+      trabajado: franjas.length > 0,
+      enVentana,
+      bloqueada,
+      slots
+    });
+  }
+
+  res.json({
+    ok: true,
+    dias,
+    duracionSlot,
+    semanaInicio: semanaInicio.toISOString().slice(0, 10),
+    ventanaInicio: fechaInicio.toISOString().slice(0, 10),
+    ventanaFin: fechaFin.toISOString().slice(0, 10)
+  });
+});
+
 /* ── PodoSystem obtiene reservas web pendientes ───────────────── */
 router.get('/reservas-nuevas', auth, (req, res) => {
   const reservas = req.db
