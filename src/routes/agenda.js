@@ -87,9 +87,18 @@ function slotLibres(slots, ocupadas, duracion) {
 
 /* ── Helper: sumar N días hábiles según horario ───────────────── */
 function sumarDiasHabiles(base, nDias, horario) {
+  if (!nDias || nDias <= 0) return new Date(base);
+  // Seguridad: si el horario no tiene días laborables, usar días naturales
+  const tieneHorario = Object.keys(horario || {}).some(k => horario[k]?.length > 0);
+  if (!tieneHorario) {
+    const d = new Date(base);
+    d.setDate(d.getDate() + nDias);
+    return d;
+  }
   const d = new Date(base);
   let sumados = 0;
-  while (sumados < nDias) {
+  let maxIter = nDias * 14; // límite de seguridad absoluto
+  while (sumados < nDias && maxIter-- > 0) {
     d.setDate(d.getDate() + 1);
     const dia = String(d.getDay());
     if (horario[dia] && horario[dia].length > 0) sumados++;
