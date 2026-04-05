@@ -10,8 +10,10 @@ const crypto   = require('crypto');
 const DB_PATH = process.env.DB_PATH || './relay.db';
 
 function initDB() {
-  const db = new Database(path.resolve(DB_PATH));
+  const db = new Database(path.resolve(DB_PATH), { timeout: 8000 });
 
+  // Limpiar WAL residual de reinicios anteriores antes de activar WAL mode
+  try { db.pragma('wal_checkpoint(TRUNCATE)'); } catch (_) {}
   db.pragma('journal_mode = WAL');
   db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');
