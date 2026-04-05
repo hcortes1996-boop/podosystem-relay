@@ -285,14 +285,17 @@ router.get('/semana/:clinicaId', (req, res) => {
   fechaInicio.setHours(12, 0, 0, 0);
   fechaFin.setHours(12, 0, 0, 0);
 
-  // Semana solicitada (parámetro ?semana=YYYY-MM-DD, sino semana actual)
-  let semanaInicio = new Date(hoy);
-  if (req.query.semana && /^\d{4}-\d{2}-\d{2}$/.test(req.query.semana)) {
+  // Ventana de inicio: ?desde=YYYY-MM-DD (rolling) o ?semana=YYYY-MM-DD (lunes fijo, compat.)
+  // Por defecto: primer día disponible (ventanaInicio)
+  let semanaInicio = new Date(fechaInicio);
+  if (req.query.desde && /^\d{4}-\d{2}-\d{2}$/.test(req.query.desde)) {
+    semanaInicio = new Date(req.query.desde + 'T12:00:00Z');
+  } else if (req.query.semana && /^\d{4}-\d{2}-\d{2}$/.test(req.query.semana)) {
     semanaInicio = new Date(req.query.semana + 'T12:00:00Z');
+    // compat: ajustar al lunes
+    const dow = semanaInicio.getUTCDay();
+    semanaInicio.setUTCDate(semanaInicio.getUTCDate() - (dow === 0 ? 6 : dow - 1));
   }
-  // Ajustar al lunes de esa semana
-  const dow = semanaInicio.getUTCDay();
-  semanaInicio.setUTCDate(semanaInicio.getUTCDate() - (dow === 0 ? 6 : dow - 1));
   semanaInicio.setHours(12, 0, 0, 0);
 
   const NOMBRES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
