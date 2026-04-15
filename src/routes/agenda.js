@@ -40,6 +40,14 @@ router.put('/sync-agenda', auth, (req, res) => {
     for (const c of (citas || [])) {
       if (c.fecha && c.hora) ins.run(req.clinicaId, c.fecha, c.hora, c.duracion || 30);
     }
+    // BUGFIX: Re-bloquear reservas web pendientes para que el sync de PodoSystem
+    // no libere slots que ya tienen una reserva online sin confirmar todavía.
+    const pendientes = req.db.prepare(
+      `SELECT fecha, hora, duracion FROM reservas WHERE clinicaId = ? AND estado = 'pendiente_pc'`
+    ).all(req.clinicaId);
+    for (const r of pendientes) {
+      if (r.fecha && r.hora) ins.run(req.clinicaId, r.fecha, r.hora, r.duracion || 30);
+    }
   });
   insertAll(citasOcupadas || []);
 
@@ -220,10 +228,13 @@ router.post('/reservar-slot', (req, res) => {
 
   try {
     const resultado = req.db.transaction(() => {
-      // Comprobar que el slot sigue libre
+      // Comprobar que el slot sigue libre (doble check: citas_ocupadas + reservas activas)
       const ocupado = req.db
         .prepare('SELECT 1 FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ? AND hora = ?')
-        .get(clinicaId, fecha, hora);
+        .get(clinicaId, fecha, hora)
+        || req.db
+          .prepare(`SELECT 1 FROM reservas WHERE clinicaId = ? AND fecha = ? AND hora = ? AND estado != 'cancelada'`)
+          .get(clinicaId, fecha, hora);
       if (ocupado) return null;
 
       // Obtener duración del slot de la config
