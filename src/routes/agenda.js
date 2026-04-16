@@ -383,4 +383,28 @@ router.put('/reservas/:id/sincronizar', auth, (req, res) => {
   res.json({ ok: true });
 });
 
+/* ── PodoSystem obtiene historial de reservas recientes (todas) ── */
+router.get('/reservas-recientes', auth, (req, res) => {
+  const dias = Math.min(parseInt(req.query.dias) || 30, 90);
+  const desde = new Date(Date.now() - dias * 86400000).toISOString();
+  const reservas = req.db
+    .prepare(`SELECT * FROM reservas WHERE clinicaId = ? AND creadaEn >= ? ORDER BY creadaEn DESC`)
+    .all(req.clinicaId, desde);
+  res.json({ ok: true, reservas });
+});
+
+/* ── PodoSystem reactiva una reserva sincronizada (recuperación) ── */
+router.put('/reservas/:id/pendiente', auth, (req, res) => {
+  const reserva = req.db
+    .prepare('SELECT id FROM reservas WHERE id = ? AND clinicaId = ?')
+    .get(req.params.id, req.clinicaId);
+  if (!reserva) return res.status(404).json({ ok: false, error: 'Reserva no encontrada' });
+
+  req.db.prepare(`UPDATE reservas SET estado = 'pendiente_pc' WHERE id = ?`).run(req.params.id);
+  // Re-bloquear el slot
+  req.db.prepare('INSERT OR IGNORE INTO citas_ocupadas (clinicaId, fecha, hora, duracion) SELECT clinicaId, fecha, hora, duracion FROM reservas WHERE id = ?')
+    .run(req.params.id);
+  res.json({ ok: true });
+});
+
 module.exports = router;
