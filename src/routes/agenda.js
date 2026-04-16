@@ -393,6 +393,20 @@ router.get('/reservas-recientes', auth, (req, res) => {
   res.json({ ok: true, reservas });
 });
 
+/* ── PodoSystem cancela una reserva (libera el slot) ─────────── */
+router.put('/reservas/:id/cancelar', auth, (req, res) => {
+  const reserva = req.db
+    .prepare('SELECT id, fecha, hora FROM reservas WHERE id = ? AND clinicaId = ?')
+    .get(req.params.id, req.clinicaId);
+  if (!reserva) return res.status(404).json({ ok: false, error: 'Reserva no encontrada' });
+
+  req.db.prepare(`UPDATE reservas SET estado = 'cancelada' WHERE id = ?`).run(req.params.id);
+  // Liberar el slot de citas_ocupadas (si solo lo bloqueaba esta reserva)
+  req.db.prepare('DELETE FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ? AND hora = ?')
+    .run(req.clinicaId, reserva.fecha, reserva.hora);
+  res.json({ ok: true });
+});
+
 /* ── PodoSystem reactiva una reserva sincronizada (recuperación) ── */
 router.put('/reservas/:id/pendiente', auth, (req, res) => {
   const reserva = req.db
