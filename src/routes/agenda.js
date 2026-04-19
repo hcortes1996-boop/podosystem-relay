@@ -228,12 +228,15 @@ router.post('/reservar-slot', (req, res) => {
 
   try {
     const resultado = req.db.transaction(() => {
-      // Comprobar que el slot sigue libre (doble check: citas_ocupadas + reservas activas)
+      // Comprobar que el slot sigue libre (doble check: citas_ocupadas + reservas pendientes)
+      // Solo bloqueamos por reservas 'pendiente_pc': una reserva 'sincronizada' ya fue
+      // procesada por PodoSystem y su slot se gestiona exclusivamente vía citas_ocupadas.
+      // Si la cita local fue eliminada, el sync la quitó de citas_ocupadas → slot libre.
       const ocupado = req.db
         .prepare('SELECT 1 FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ? AND hora = ?')
         .get(clinicaId, fecha, hora)
         || req.db
-          .prepare(`SELECT 1 FROM reservas WHERE clinicaId = ? AND fecha = ? AND hora = ? AND estado != 'cancelada'`)
+          .prepare(`SELECT 1 FROM reservas WHERE clinicaId = ? AND fecha = ? AND hora = ? AND estado = 'pendiente_pc'`)
           .get(clinicaId, fecha, hora);
       if (ocupado) return null;
 
