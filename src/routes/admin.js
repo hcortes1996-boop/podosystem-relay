@@ -1,17 +1,19 @@
 /**
  * admin.js — Panel de administración PodoSystem
  *
- * Rutas:
- *   GET  /admin              → HTML panel (autenticación por token en UI)
- *   GET  /admin/api/stats    → resumen general
- *   GET  /admin/api/licencias→ lista de licencias
- *   POST /admin/api/licencias→ crear licencia
- *   PUT  /admin/api/licencias/:id → actualizar licencia
- *   DELETE /admin/api/licencias/:id → eliminar
- *   GET  /admin/api/clinicas → lista clínicas relay
- *   POST /admin/api/nuevo-cliente → flujo completo: licencia + relay + email draft
+ * Montado en /admin desde index.js, así las rutas internas son:
+ *   GET  /              → HTML panel (ruta pública, auth en UI con JS)
+ *   GET  /api/stats     → resumen general
+ *   GET  /api/licencias → lista de licencias
+ *   POST /api/licencias → crear licencia
+ *   PUT  /api/licencias/:id → actualizar licencia
+ *   DELETE /api/licencias/:id → eliminar
+ *   GET  /api/clinicas  → lista clínicas relay
+ *   POST /api/nuevo-cliente → flujo completo: licencia + relay + email draft
+ *   POST /api/licencias/verificar → verificar licencia desde Electron (sin auth)
  *
- * Auth: todas /admin/api/* requieren header Authorization: Bearer <ADMIN_TOKEN>
+ * Auth: todas /api/* (excepto /api/licencias/verificar) requieren
+ *       header Authorization: Bearer <ADMIN_TOKEN>
  */
 
 const router  = require('express').Router();
@@ -21,6 +23,21 @@ const fs      = require('fs');
 const { genId, genApiKey } = require('../db');
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'cambiar-este-token-en-railway';
+
+// Cargar el HTML del panel al arrancar (más fiable que sendFile en producción)
+const adminHtmlPath = path.resolve(__dirname, '..', 'admin-panel', 'index.html');
+let adminHtml = '';
+try {
+  adminHtml = fs.readFileSync(adminHtmlPath, 'utf-8');
+  console.log('[admin] HTML panel cargado desde:', adminHtmlPath);
+} catch (e) {
+  adminHtml = `<!DOCTYPE html><html><body>
+    <h2>Admin panel no encontrado</h2>
+    <p>Ruta esperada: ${adminHtmlPath}</p>
+    <p>Error: ${e.message}</p>
+  </body></html>`;
+  console.error('[admin] ERROR cargando HTML:', e.message);
+}
 
 function authAdmin(req, res, next) {
   const header = req.headers['authorization'] || '';
@@ -37,28 +54,50 @@ function genLicenseKey() {
   return [0,4,8,12,16].map((s,i,a) => bytes.slice(s, a[i+1] || bytes.length)).join('-');
 }
 
-// ── HTML del panel ────────────────────────────────────────────────────────────
+// ── HTML del panel (GET /admin) ───────────────────────────────────────────────
 
-const adminHtmlPath = path.resolve(__dirname, '..', 'admin-panel', 'index.html');
-
-router.get('/admin', (_req, res) => {
-  if (fs.existsSync(adminHtmlPath)) {
-    res.sendFile(adminHtmlPath);
-  } else {
-    res.status(503).send('<h2>Admin panel HTML not found. Deploy src/admin-panel/index.html.</h2>');
-  }
+router.get('/', (_req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(adminHtml);
 });
 
-// ── API ───────────────────────────────────────────────────────────────────────
+// Alias /admin/index.html → mismo HTML
+router.get('/index.html', (_req, res) => {
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(adminHtml);
+});
 
-router.get('/admin/api/stats', authAdmin, (req, res) => {
-  const db = req.db;
-  const licencias    = db.prepare('SELECT * FROM licencias').all();
-  const clinicas     = db.prepare('SELECT * FROM clinicas').all();
+// ── Verificar licencia desde Electron (sin auth admin) ───────────────────────
 
-  const activas      = licencias.filter(l => l.estado === 'active').length;
-  const trial        = licencias.filter(l => l.estado === 'trial').length;
-  const expiradas    = licencias.filter(l => l.estado === 'expired' || l.estado === 'blocked').length;
+router.post('/api/licencias/verificar', (req, res) => {
+  const { licenseKey, hardwareId, instanceId } = req.body;
+  if (!licenseKey) return res.status(400).json({ ok: false, error: 'licenseKey requerida' });
+  const lic = req.db.prepare('SELECT * FROM licencias WHERE licenseKey = ?').get(licenseKey);
+  if (!lic) return res.status(404).json({ ok: false, error: 'Licencia no encontrada' });
+  if (lic.estado === 'blocked') return res.status(403).json({ ok: false, error: 'Licencia bloqueada' });
+  // Registrar hardware la primera vez
+  if (!lic.hardwareId && hardwareId) {
+    req.db.prepare('UPDATE licencias SET hardwareId=?, instanceId=?, estado=?, activadaEn=?, ultimaValidacion=? WHERE id=?')
+      .run(hardwareId, instanceId || '', 'active', new Date().toISOString(), new Date().toISOString(), lic.id);
+  } else if (lic.hardwareId && lic.hardwareId !== hardwareId) {
+    return res.status(403).json({ ok: false, error: 'hardware_mismatch' });
+  } else {
+    req.db.prepare('UPDATE licencias SET ultimaValidacion=? WHERE id=?')
+      .run(new Date().toISOString(), lic.id);
+  }
+  const updated = req.db.prepare('SELECT * FROM licencias WHERE id=?').get(lic.id);
+  res.json({ ok: true, estado: updated.estado });
+});
+
+// ── API (requiere ADMIN_TOKEN) ────────────────────────────────────────────────
+
+router.get('/api/stats', authAdmin, (req, res) => {
+  const licencias = req.db.prepare('SELECT * FROM licencias').all();
+  const clinicas  = req.db.prepare('SELECT * FROM clinicas').all();
+
+  const activas   = licencias.filter(l => l.estado === 'active').length;
+  const trial     = licencias.filter(l => l.estado === 'trial').length;
+  const expiradas = licencias.filter(l => l.estado === 'expired' || l.estado === 'blocked').length;
 
   res.json({
     ok: true,
@@ -68,17 +107,17 @@ router.get('/admin/api/stats', authAdmin, (req, res) => {
       trial,
       expiradas,
       totalClinicas: clinicas.length,
-      ingresosMes: activas * 19, // 19€/mes por licencia activa
+      ingresosMes: activas * 19,
     }
   });
 });
 
-router.get('/admin/api/licencias', authAdmin, (req, res) => {
+router.get('/api/licencias', authAdmin, (req, res) => {
   const licencias = req.db.prepare('SELECT * FROM licencias ORDER BY createdAt DESC').all();
   res.json({ ok: true, licencias });
 });
 
-router.post('/admin/api/licencias', authAdmin, (req, res) => {
+router.post('/api/licencias', authAdmin, (req, res) => {
   const { clienteNombre, clienteEmail, notas } = req.body;
   if (!clienteNombre?.trim() || !clienteEmail?.trim()) {
     return res.status(400).json({ ok: false, error: 'clienteNombre y clienteEmail son obligatorios' });
@@ -93,7 +132,7 @@ router.post('/admin/api/licencias', authAdmin, (req, res) => {
   res.status(201).json({ ok: true, id, licenseKey });
 });
 
-router.put('/admin/api/licencias/:id', authAdmin, (req, res) => {
+router.put('/api/licencias/:id', authAdmin, (req, res) => {
   const { id } = req.params;
   const campos  = ['clienteNombre','clienteEmail','clinicaId','hardwareId','instanceId',
                    'estado','activadaEn','ultimaValidacion','proximaRenovacion','notas'];
@@ -108,18 +147,18 @@ router.put('/admin/api/licencias/:id', authAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-router.delete('/admin/api/licencias/:id', authAdmin, (req, res) => {
+router.delete('/api/licencias/:id', authAdmin, (req, res) => {
   req.db.prepare('DELETE FROM licencias WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 
-router.get('/admin/api/clinicas', authAdmin, (req, res) => {
+router.get('/api/clinicas', authAdmin, (req, res) => {
   const clinicas = req.db.prepare('SELECT id, nombre, createdAt, activa FROM clinicas ORDER BY createdAt DESC').all();
   res.json({ ok: true, clinicas });
 });
 
 // Flujo completo: crear licencia + clínica relay + borrador email
-router.post('/admin/api/nuevo-cliente', authAdmin, (req, res) => {
+router.post('/api/nuevo-cliente', authAdmin, (req, res) => {
   const { clienteNombre, clienteEmail, clinicaNombre } = req.body;
   if (!clienteNombre?.trim() || !clienteEmail?.trim() || !clinicaNombre?.trim()) {
     return res.status(400).json({ ok: false, error: 'clienteNombre, clienteEmail y clinicaNombre son obligatorios' });
@@ -140,47 +179,21 @@ router.post('/admin/api/nuevo-cliente', authAdmin, (req, res) => {
     INSERT INTO clinicas (id, nombre, apiKey) VALUES (?, ?, ?)
   `).run(clinicaId, clinicaNombre.trim(), apiKey);
 
-  // 3. Actualizar licencia con clinicaId
+  // 3. Vincular licencia con clínica
   req.db.prepare('UPDATE licencias SET clinicaId = ? WHERE id = ?').run(clinicaId, licId);
 
   // 4. Generar borrador email
-  const relayUrl  = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
+  const relayUrl   = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
   const emailDraft = generarEmailBienvenida({
     nombre: clienteNombre.trim(),
-    email: clienteEmail.trim(),
+    email:  clienteEmail.trim(),
     licenseKey,
     clinicaId,
     apiKey,
     relayUrl,
   });
 
-  res.status(201).json({
-    ok: true,
-    licenseKey,
-    clinicaId,
-    apiKey,
-    emailDraft,
-  });
-});
-
-// Verificar si una licencia existe en nuestro sistema (llamado desde Electron en activación)
-router.post('/admin/api/licencias/verificar', (req, res) => {
-  const { licenseKey, hardwareId, instanceId } = req.body;
-  if (!licenseKey) return res.status(400).json({ ok: false, error: 'licenseKey requerida' });
-  const lic = req.db.prepare('SELECT * FROM licencias WHERE licenseKey = ?').get(licenseKey);
-  if (!lic) return res.status(404).json({ ok: false, error: 'Licencia no encontrada' });
-  if (lic.estado === 'blocked') return res.status(403).json({ ok: false, error: 'Licencia bloqueada' });
-  // Registrar hardware la primera vez
-  if (!lic.hardwareId && hardwareId) {
-    req.db.prepare('UPDATE licencias SET hardwareId=?, instanceId=?, estado=?, activadaEn=?, ultimaValidacion=? WHERE id=?')
-      .run(hardwareId, instanceId||'', 'active', new Date().toISOString(), new Date().toISOString(), lic.id);
-  } else if (lic.hardwareId && lic.hardwareId !== hardwareId) {
-    return res.status(403).json({ ok: false, error: 'hardware_mismatch' });
-  } else {
-    req.db.prepare('UPDATE licencias SET ultimaValidacion=? WHERE id=?')
-      .run(new Date().toISOString(), lic.id);
-  }
-  res.json({ ok: true, estado: lic.estado });
+  res.status(201).json({ ok: true, licenseKey, clinicaId, apiKey, emailDraft });
 });
 
 function generarEmailBienvenida({ nombre, email, licenseKey, clinicaId, apiKey, relayUrl }) {
@@ -218,8 +231,7 @@ Descarga PodoSystem en: https://podosystem.es
 ¿Tienes alguna duda? Escríbenos a soporte@podosystem.es o llámanos.
 
 Un saludo,
-El equipo de PodoSystem
-`.trim()
+El equipo de PodoSystem`.trim()
   };
 }
 

@@ -27,19 +27,6 @@ app.use((req, _res, next) => {
   next();
 });
 
-// Rutas
-app.use('/api', require('./routes/public'));
-app.use('/api', require('./routes/registro'));
-app.use('/api', require('./routes/clinica'));
-app.use('/api', require('./routes/bloqueos'));
-app.use('/api', require('./routes/agenda'));
-
-// Panel de administración (acceso solo con ADMIN_TOKEN)
-app.use('/', require('./routes/admin'));
-
-// Widget embebible como archivo estático
-app.use('/widget', express.static('widget'));
-
 // Ruta raíz informativa
 app.get('/', (_req, res) => {
   res.json({
@@ -53,10 +40,24 @@ app.get('/', (_req, res) => {
       gestionar:        'PUT  /api/solicitudes/:id/gestionar  (X-Api-Key requerida)',
       bloqueoWeb:       'PUT  /api/bloqueo-web  (X-Api-Key requerida)',
       disponibilidad:   'GET  /api/disponibilidad/:clinicaId  (público)',
-      widget:           'GET  /widget/podosystem-widget.js'
+      widget:           'GET  /widget/podosystem-widget.js',
+      admin:            'GET  /admin  (ADMIN_TOKEN requerido)'
     }
   });
 });
+
+// API pública
+app.use('/api', require('./routes/public'));
+app.use('/api', require('./routes/registro'));
+app.use('/api', require('./routes/clinica'));
+app.use('/api', require('./routes/bloqueos'));
+app.use('/api', require('./routes/agenda'));
+
+// Panel de administración — montado en /admin para claridad de rutas
+app.use('/admin', require('./routes/admin'));
+
+// Widget embebible como archivo estático
+app.use('/widget', express.static('widget'));
 
 // 404
 app.use((_req, res) => {
@@ -73,5 +74,6 @@ const PORT = process.env.PORT || 3010;
 app.listen(PORT, () => {
   console.log(`[podosystem-relay] Escuchando en puerto ${PORT}`);
   console.log(`[podosystem-relay] Base de datos: ${process.env.DB_PATH || './relay.db'}`);
+  console.log(`[podosystem-relay] ADMIN_TOKEN cargado: ${process.env.ADMIN_TOKEN ? 'SI' : 'NO (usando default)'}`);
   console.log(`[podosystem-relay] REGISTRO_SECRET cargado: "${process.env.REGISTRO_SECRET || '(no definido)'}"`);
 });
