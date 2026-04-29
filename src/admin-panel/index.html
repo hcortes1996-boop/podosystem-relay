@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PodoSystem Admin</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: system-ui, sans-serif; }
+    .fade { animation: fade .25s ease; }
+    @keyframes fade { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
+    .tag-active   { background:#d1fae5; color:#065f46; }
+    .tag-trial    { background:#fef3c7; color:#92400e; }
+    .tag-expired  { background:#fee2e2; color:#991b1b; }
+    .tag-blocked  { background:#e5e7eb; color:#374151; }
+    pre { white-space: pre-wrap; word-break: break-word; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+
+<!-- LOGIN -->
+<div id="login-screen" class="min-h-screen flex items-center justify-center p-6">
+  <div class="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm">
+    <div class="text-center mb-6">
+      <div class="text-4xl mb-3">🛡️</div>
+      <h1 class="text-xl font-bold text-gray-800">PodoSystem Admin</h1>
+      <p class="text-sm text-gray-500 mt-1">Acceso exclusivo para administradores</p>
+    </div>
+    <form id="login-form" class="space-y-4">
+      <input type="password" id="token-input" placeholder="Admin token"
+        class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 transition">
+      <div id="login-error" class="hidden bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-sm text-red-700"></div>
+      <button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition">
+        Entrar
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- MAIN APP -->
+<div id="app" class="hidden">
+  <!-- Header -->
+  <header class="bg-[#1E3A5F] text-white px-6 py-3 flex items-center justify-between shadow">
+    <div class="flex items-center gap-3">
+      <span class="text-xl">🛡️</span>
+      <span class="font-bold text-lg">PodoSystem Admin</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <nav class="flex gap-1">
+        <button onclick="showTab('dashboard')" data-tab="dashboard" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Dashboard</button>
+        <button onclick="showTab('licencias')" data-tab="licencias" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Licencias</button>
+        <button onclick="showTab('clinicas')" data-tab="clinicas" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Clínicas relay</button>
+        <button onclick="showTab('nuevo')" data-tab="nuevo" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">+ Nuevo cliente</button>
+      </nav>
+      <button onclick="logout()" class="text-white/50 hover:text-red-300 text-sm transition">Salir</button>
+    </div>
+  </header>
+
+  <!-- Content -->
+  <main class="max-w-7xl mx-auto px-6 py-6">
+
+    <!-- DASHBOARD -->
+    <div id="tab-dashboard" class="hidden fade">
+      <h2 class="text-xl font-bold text-gray-800 mb-5">Panel general</h2>
+      <div id="stats-cards" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
+        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 col-span-2 md:col-span-1">
+          <p class="text-xs text-gray-500 mb-1">Licencias activas</p>
+          <p id="s-activas" class="text-3xl font-bold text-green-600">—</p>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <p class="text-xs text-gray-500 mb-1">En periodo trial</p>
+          <p id="s-trial" class="text-3xl font-bold text-amber-500">—</p>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <p class="text-xs text-gray-500 mb-1">Expiradas</p>
+          <p id="s-expiradas" class="text-3xl font-bold text-red-500">—</p>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <p class="text-xs text-gray-500 mb-1">Clínicas relay</p>
+          <p id="s-clinicas" class="text-3xl font-bold text-blue-600">—</p>
+        </div>
+        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <p class="text-xs text-gray-500 mb-1">Ingresos/mes (est.)</p>
+          <p id="s-ingresos" class="text-3xl font-bold text-[#1E3A5F]">—</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- LICENCIAS -->
+    <div id="tab-licencias" class="hidden fade">
+      <div class="flex items-center justify-between mb-5">
+        <h2 class="text-xl font-bold text-gray-800">Licencias</h2>
+        <button onclick="showModal('modal-nueva-licencia')" class="px-4 py-2 bg-[#2ECC9A] hover:bg-[#28b589] text-[#1E3A5F] rounded-lg text-sm font-semibold transition">
+          + Nueva licencia
+        </button>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b border-gray-100">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Cliente</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Clave</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Estado</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Activada</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Últ. validación</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="licencias-tbody" class="divide-y divide-gray-50">
+            <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400 text-sm">Cargando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- CLÍNICAS -->
+    <div id="tab-clinicas" class="hidden fade">
+      <div class="flex items-center justify-between mb-5">
+        <h2 class="text-xl font-bold text-gray-800">Clínicas relay</h2>
+      </div>
+      <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-gray-50 border-b border-gray-100">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">ID</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Nombre</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Creada</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Activa</th>
+            </tr>
+          </thead>
+          <tbody id="clinicas-tbody" class="divide-y divide-gray-50">
+            <tr><td colspan="4" class="px-4 py-6 text-center text-gray-400 text-sm">Cargando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- NUEVO CLIENTE -->
+    <div id="tab-nuevo" class="hidden fade">
+      <h2 class="text-xl font-bold text-gray-800 mb-5">Alta de nuevo cliente</h2>
+      <div class="grid md:grid-cols-2 gap-6">
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 class="font-semibold text-gray-700 mb-4">Datos del cliente</h3>
+          <form id="nuevo-cliente-form" class="space-y-4">
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Nombre completo</label>
+              <input type="text" id="nc-nombre" placeholder="María García López" class="w-full px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Email</label>
+              <input type="email" id="nc-email" placeholder="cliente@email.com" class="w-full px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Nombre de la clínica</label>
+              <input type="text" id="nc-clinica" placeholder="Clínica del Pie Ejemplo" class="w-full px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition">
+            </div>
+            <button type="submit" id="nc-submit" class="w-full py-3 bg-[#1E3A5F] hover:bg-[#163050] text-white rounded-lg font-semibold text-sm transition">
+              Generar accesos y borrador de email
+            </button>
+          </form>
+        </div>
+        <div id="nc-resultado" class="hidden bg-white rounded-xl shadow-sm border border-gray-100 p-6 fade">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="font-semibold text-gray-700">Resultado</h3>
+            <button onclick="copiarEmailDraft()" class="text-xs px-3 py-1.5 bg-[#2ECC9A] text-[#1E3A5F] rounded-lg font-semibold hover:bg-[#28b589] transition">📋 Copiar email</button>
+          </div>
+          <div class="space-y-3 mb-5">
+            <div class="bg-gray-50 rounded-lg px-4 py-3">
+              <p class="text-xs text-gray-500 mb-1">🔑 Clave de licencia</p>
+              <p id="nc-r-key" class="font-mono font-bold text-gray-800 text-sm tracking-wider"></p>
+            </div>
+            <div class="bg-gray-50 rounded-lg px-4 py-3">
+              <p class="text-xs text-gray-500 mb-1">🌐 ID Clínica relay</p>
+              <p id="nc-r-clinica" class="font-mono text-gray-800 text-sm"></p>
+            </div>
+            <div class="bg-gray-50 rounded-lg px-4 py-3">
+              <p class="text-xs text-gray-500 mb-1">🔐 API Key relay</p>
+              <p id="nc-r-apikey" class="font-mono text-gray-600 text-xs break-all"></p>
+            </div>
+          </div>
+          <div>
+            <p class="text-xs font-semibold text-gray-500 uppercase mb-2">Borrador email</p>
+            <pre id="nc-r-email" class="bg-gray-50 rounded-lg p-3 text-xs text-gray-700 max-h-64 overflow-y-auto border border-gray-200"></pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- MODAL: Nueva licencia manual -->
+<div id="modal-nueva-licencia" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+  <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
+    <h3 class="text-lg font-bold text-gray-800 mb-4">Nueva licencia manual</h3>
+    <form id="form-nueva-licencia" class="space-y-3">
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Nombre cliente</label>
+        <input type="text" id="ml-nombre" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Email cliente</label>
+        <input type="email" id="ml-email" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Notas (opcional)</label>
+        <input type="text" id="ml-notas" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500">
+      </div>
+      <div id="ml-error" class="hidden bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-sm text-red-700"></div>
+      <div id="ml-success" class="hidden bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-800 font-mono"></div>
+      <div class="flex gap-3 pt-2">
+        <button type="button" onclick="hideModal('modal-nueva-licencia')" class="flex-1 py-2 border-2 border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:border-gray-300 transition">Cancelar</button>
+        <button type="submit" class="flex-1 py-2 bg-[#2ECC9A] text-[#1E3A5F] rounded-lg text-sm font-bold hover:bg-[#28b589] transition">Crear</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL: Editar licencia -->
+<div id="modal-editar-licencia" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+  <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
+    <h3 class="text-lg font-bold text-gray-800 mb-4">Editar licencia</h3>
+    <input type="hidden" id="el-id">
+    <div class="space-y-3">
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Estado</label>
+        <select id="el-estado" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500">
+          <option value="trial">Trial</option>
+          <option value="active">Activa</option>
+          <option value="expired">Expirada</option>
+          <option value="blocked">Bloqueada</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Notas</label>
+        <input type="text" id="el-notas" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500">
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Hardware ID (para transferencia)</label>
+        <input type="text" id="el-hardware" placeholder="vaciar para desvincular PC" class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm font-mono focus:outline-none focus:border-blue-500">
+      </div>
+    </div>
+    <div class="flex gap-3 mt-4">
+      <button onclick="hideModal('modal-editar-licencia')" class="flex-1 py-2 border-2 border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:border-gray-300 transition">Cancelar</button>
+      <button onclick="guardarLicencia()" class="flex-1 py-2 bg-[#1E3A5F] text-white rounded-lg text-sm font-bold hover:bg-[#163050] transition">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ───────────────────────────────────────────────────────────────────
+let TOKEN = localStorage.getItem('ps_admin_token') || '';
+let currentTab = 'dashboard';
+let emailDraftText = '';
+
+// ── Auth ────────────────────────────────────────────────────────────────────
+async function tryLogin(token) {
+  const res = await fetch('/admin/api/stats', { headers: { Authorization: `Bearer ${token}` } });
+  if (res.status === 401) return false;
+  return true;
+}
+
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const token = document.getElementById('token-input').value.trim();
+  const ok = await tryLogin(token);
+  if (ok) {
+    TOKEN = token;
+    localStorage.setItem('ps_admin_token', token);
+    document.getElementById('login-screen').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    showTab('dashboard');
+    loadStats();
+  } else {
+    const el = document.getElementById('login-error');
+    el.textContent = 'Token incorrecto.';
+    el.classList.remove('hidden');
+  }
+});
+
+function logout() {
+  TOKEN = '';
+  localStorage.removeItem('ps_admin_token');
+  document.getElementById('login-screen').classList.remove('hidden');
+  document.getElementById('app').classList.add('hidden');
+}
+
+// ── Init ────────────────────────────────────────────────────────────────────
+(async () => {
+  if (TOKEN) {
+    const ok = await tryLogin(TOKEN);
+    if (ok) {
+      document.getElementById('login-screen').classList.add('hidden');
+      document.getElementById('app').classList.remove('hidden');
+      showTab('dashboard');
+      loadStats();
+      return;
+    }
+    TOKEN = '';
+    localStorage.removeItem('ps_admin_token');
+  }
+})();
+
+// ── Tabs ────────────────────────────────────────────────────────────────────
+function showTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('[id^="tab-"]').forEach(el => el.classList.add('hidden'));
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.toggle('bg-white/20', b.dataset.tab === tab);
+    b.classList.toggle('text-white', b.dataset.tab === tab);
+    b.classList.toggle('text-white/70', b.dataset.tab !== tab);
+  });
+  document.getElementById(`tab-${tab}`).classList.remove('hidden');
+  if (tab === 'dashboard')  loadStats();
+  if (tab === 'licencias')  loadLicencias();
+  if (tab === 'clinicas')   loadClinicas();
+}
+
+// ── API helpers ─────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return res.json();
+}
+
+// ── Dashboard ───────────────────────────────────────────────────────────────
+async function loadStats() {
+  const { stats } = await api('GET', '/admin/api/stats');
+  if (!stats) return;
+  document.getElementById('s-activas').textContent    = stats.activas;
+  document.getElementById('s-trial').textContent      = stats.trial;
+  document.getElementById('s-expiradas').textContent  = stats.expiradas;
+  document.getElementById('s-clinicas').textContent   = stats.totalClinicas;
+  document.getElementById('s-ingresos').textContent   = stats.ingresosMes + '€';
+}
+
+// ── Licencias ───────────────────────────────────────────────────────────────
+async function loadLicencias() {
+  const { licencias } = await api('GET', '/admin/api/licencias');
+  const tbody = document.getElementById('licencias-tbody');
+  if (!licencias?.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-6 text-center text-gray-400 text-sm">Sin licencias registradas</td></tr>';
+    return;
+  }
+  tbody.innerHTML = licencias.map(l => `
+    <tr class="hover:bg-gray-50 transition">
+      <td class="px-4 py-3">
+        <p class="font-medium text-gray-800 text-sm">${esc(l.clienteNombre)}</p>
+        <p class="text-xs text-gray-400">${esc(l.clienteEmail)}</p>
+      </td>
+      <td class="px-4 py-3 font-mono text-xs text-gray-600">${esc(l.licenseKey)}</td>
+      <td class="px-4 py-3">
+        <span class="px-2 py-1 rounded-full text-xs font-semibold tag-${l.estado}">${l.estado}</span>
+      </td>
+      <td class="px-4 py-3 text-xs text-gray-500">${l.activadaEn ? l.activadaEn.slice(0,10) : '—'}</td>
+      <td class="px-4 py-3 text-xs text-gray-500">${l.ultimaValidacion ? l.ultimaValidacion.slice(0,10) : '—'}</td>
+      <td class="px-4 py-3 flex gap-2">
+        <button onclick="editarLicencia(${JSON.stringify(l).replace(/"/g,'&quot;')})"
+          class="text-xs px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition font-medium">Editar</button>
+        <button onclick="eliminarLicencia('${l.id}', '${esc(l.clienteNombre)}')"
+          class="text-xs px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition font-medium">Eliminar</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function editarLicencia(l) {
+  document.getElementById('el-id').value      = l.id;
+  document.getElementById('el-estado').value  = l.estado;
+  document.getElementById('el-notas').value   = l.notas || '';
+  document.getElementById('el-hardware').value = l.hardwareId || '';
+  showModal('modal-editar-licencia');
+}
+
+async function guardarLicencia() {
+  const id = document.getElementById('el-id').value;
+  await api('PUT', `/admin/api/licencias/${id}`, {
+    estado:     document.getElementById('el-estado').value,
+    notas:      document.getElementById('el-notas').value,
+    hardwareId: document.getElementById('el-hardware').value || null,
+  });
+  hideModal('modal-editar-licencia');
+  loadLicencias();
+}
+
+async function eliminarLicencia(id, nombre) {
+  if (!confirm(`¿Eliminar licencia de ${nombre}? Esta acción no se puede deshacer.`)) return;
+  await api('DELETE', `/admin/api/licencias/${id}`);
+  loadLicencias();
+}
+
+document.getElementById('form-nueva-licencia').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('ml-error');
+  const sucEl = document.getElementById('ml-success');
+  errEl.classList.add('hidden');
+  sucEl.classList.add('hidden');
+  const res = await api('POST', '/admin/api/licencias', {
+    clienteNombre: document.getElementById('ml-nombre').value,
+    clienteEmail:  document.getElementById('ml-email').value,
+    notas:         document.getElementById('ml-notas').value,
+  });
+  if (res.ok) {
+    sucEl.textContent = `✅ Licencia creada: ${res.licenseKey}`;
+    sucEl.classList.remove('hidden');
+    setTimeout(() => { hideModal('modal-nueva-licencia'); loadLicencias(); }, 2000);
+  } else {
+    errEl.textContent = res.error;
+    errEl.classList.remove('hidden');
+  }
+});
+
+// ── Clínicas ─────────────────────────────────────────────────────────────────
+async function loadClinicas() {
+  const { clinicas } = await api('GET', '/admin/api/clinicas');
+  const tbody = document.getElementById('clinicas-tbody');
+  if (!clinicas?.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-gray-400 text-sm">Sin clínicas registradas</td></tr>';
+    return;
+  }
+  tbody.innerHTML = clinicas.map(c => `
+    <tr class="hover:bg-gray-50 transition">
+      <td class="px-4 py-3 font-mono text-xs text-gray-600">${esc(c.id)}</td>
+      <td class="px-4 py-3 font-medium text-sm text-gray-800">${esc(c.nombre)}</td>
+      <td class="px-4 py-3 text-xs text-gray-500">${c.createdAt ? c.createdAt.slice(0,10) : '—'}</td>
+      <td class="px-4 py-3"><span class="px-2 py-1 rounded-full text-xs font-semibold ${c.activa ? 'tag-active' : 'tag-blocked'}">${c.activa ? 'Activa' : 'Inactiva'}</span></td>
+    </tr>
+  `).join('');
+}
+
+// ── Nuevo cliente ─────────────────────────────────────────────────────────────
+document.getElementById('nuevo-cliente-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('nc-submit');
+  btn.disabled = true;
+  btn.textContent = 'Generando…';
+
+  const res = await api('POST', '/admin/api/nuevo-cliente', {
+    clienteNombre: document.getElementById('nc-nombre').value,
+    clienteEmail:  document.getElementById('nc-email').value,
+    clinicaNombre: document.getElementById('nc-clinica').value,
+  });
+
+  btn.disabled = false;
+  btn.textContent = 'Generar accesos y borrador de email';
+
+  if (!res.ok) { alert('Error: ' + res.error); return; }
+
+  document.getElementById('nc-r-key').textContent    = res.licenseKey;
+  document.getElementById('nc-r-clinica').textContent = res.clinicaId;
+  document.getElementById('nc-r-apikey').textContent  = res.apiKey;
+  document.getElementById('nc-r-email').textContent   = res.emailDraft.cuerpo;
+  emailDraftText = res.emailDraft.cuerpo;
+
+  document.getElementById('nc-resultado').classList.remove('hidden');
+});
+
+function copiarEmailDraft() {
+  navigator.clipboard.writeText(emailDraftText).then(() => {
+    const btn = event.target;
+    btn.textContent = '✅ Copiado';
+    setTimeout(() => btn.textContent = '📋 Copiar email', 2000);
+  });
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
+function hideModal(id) { document.getElementById(id).classList.add('hidden'); }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+</body>
+</html>

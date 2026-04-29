@@ -34,6 +34,9 @@ app.use('/api', require('./routes/clinica'));
 app.use('/api', require('./routes/bloqueos'));
 app.use('/api', require('./routes/agenda'));
 
+// Panel de administración (acceso solo con ADMIN_TOKEN)
+app.use('/', require('./routes/admin'));
+
 // Widget embebible como archivo estático
 app.use('/widget', express.static('widget'));
 

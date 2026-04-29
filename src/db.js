@@ -88,6 +88,26 @@ function initDB() {
 
     CREATE INDEX IF NOT EXISTS idx_reservas_clinica_estado
       ON reservas(clinicaId, estado, creadaEn DESC);
+
+    -- Licencias PodoSystem (gestionadas desde el admin panel)
+    CREATE TABLE IF NOT EXISTS licencias (
+      id               TEXT PRIMARY KEY,
+      licenseKey       TEXT UNIQUE NOT NULL,
+      clienteNombre    TEXT NOT NULL,
+      clienteEmail     TEXT NOT NULL,
+      clinicaId        TEXT,
+      hardwareId       TEXT,
+      instanceId       TEXT,
+      estado           TEXT NOT NULL DEFAULT 'trial',
+      activadaEn       TEXT,
+      ultimaValidacion TEXT,
+      proximaRenovacion TEXT,
+      notas            TEXT,
+      createdAt        TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_licencias_estado
+      ON licencias(estado, createdAt DESC);
   `);
 
   return db;
