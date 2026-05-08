@@ -21,6 +21,7 @@ const crypto  = require('crypto');
 const path    = require('path');
 const fs      = require('fs');
 const { genId, genApiKey } = require('../db');
+const { deployClientSite } = require('../netlify-deploy');
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'cambiar-este-token-en-railway';
 
@@ -157,9 +158,9 @@ router.get('/api/clinicas', authAdmin, (req, res) => {
   res.json({ ok: true, clinicas });
 });
 
-// Flujo completo: crear licencia + clínica relay + borrador email
-router.post('/api/nuevo-cliente', authAdmin, (req, res) => {
-  const { clienteNombre, clienteEmail, clinicaNombre } = req.body;
+// Flujo completo: crear licencia + clínica relay + despliegue Netlify + borrador email
+router.post('/api/nuevo-cliente', authAdmin, async (req, res) => {
+  const { clienteNombre, clienteEmail, clinicaNombre, clinicaTelefono = '' } = req.body;
   if (!clienteNombre?.trim() || !clienteEmail?.trim() || !clinicaNombre?.trim()) {
     return res.status(400).json({ ok: false, error: 'clienteNombre, clienteEmail y clinicaNombre son obligatorios' });
   }
@@ -182,21 +183,67 @@ router.post('/api/nuevo-cliente', authAdmin, (req, res) => {
   // 3. Vincular licencia con clínica
   req.db.prepare('UPDATE licencias SET clinicaId = ? WHERE id = ?').run(clinicaId, licId);
 
-  // 4. Generar borrador email
+  // 4. Despliegue Netlify (si NETLIFY_TOKEN está configurado)
+  let webUrl    = null;
+  let netlifyId = null;
+  let netlifyError = null;
+  if (process.env.NETLIFY_TOKEN) {
+    try {
+      const result = await deployClientSite({
+        clinicaId,
+        nombre:    clinicaNombre.trim(),
+        telefono:  clinicaTelefono.trim(),
+      });
+      webUrl    = result.webUrl;
+      netlifyId = result.netlifyId;
+      req.db.prepare('UPDATE clinicas SET webUrl=?, netlifyId=? WHERE id=?')
+        .run(webUrl, netlifyId, clinicaId);
+    } catch (e) {
+      netlifyError = e.message;
+      console.error('[nuevo-cliente] Netlify deploy fallido:', e.message);
+    }
+  }
+
+  // 5. Generar borrador email
   const relayUrl   = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
   const emailDraft = generarEmailBienvenida({
-    nombre: clienteNombre.trim(),
-    email:  clienteEmail.trim(),
+    nombre:    clienteNombre.trim(),
+    email:     clienteEmail.trim(),
     licenseKey,
     clinicaId,
     apiKey,
     relayUrl,
+    webUrl,
   });
 
-  res.status(201).json({ ok: true, licenseKey, clinicaId, apiKey, emailDraft });
+  res.status(201).json({ ok: true, licenseKey, clinicaId, apiKey, webUrl, netlifyError, emailDraft });
 });
 
-function generarEmailBienvenida({ nombre, email, licenseKey, clinicaId, apiKey, relayUrl }) {
+function generarEmailBienvenida({ nombre, email, licenseKey, clinicaId, apiKey, relayUrl, webUrl }) {
+  const seccionCitas = webUrl
+    ? `─────────────────────────────────────
+🌐 CITAS ONLINE
+
+Tu web de reservas ya está lista y activa:
+  ${webUrl}
+
+Compártela con tus pacientes (web, WhatsApp, Instagram, etc.).
+
+Para configurarla en PodoSystem ve a:
+  Citas Web → Configurar horario web → pega estos datos → Conectar → Sincronizar:
+  • ID Clínica:  ${clinicaId}
+  • API Key:     ${apiKey}
+  • Relay URL:   ${relayUrl}`
+    : `─────────────────────────────────────
+🌐 CITAS ONLINE (opcional)
+
+Si quieres activar el sistema de reservas online, estos son tus datos:
+  • ID Clínica:  ${clinicaId}
+  • API Key:     ${apiKey}
+  • Relay URL:   ${relayUrl}
+
+Dentro de PodoSystem ve a: Citas Web → Configuración → pega estos datos → Conectar → Sincronizar.`;
+
   return {
     para: email,
     asunto: '¡Bienvenido/a a PodoSystem! Tus datos de acceso',
@@ -211,15 +258,7 @@ ${licenseKey}
 Al abrir PodoSystem por primera vez, introduce esta clave cuando te la solicite.
 La licencia queda vinculada al PC donde la actives.
 
-─────────────────────────────────────
-🌐 CITAS ONLINE (opcional)
-
-Si quieres activar el sistema de reservas online, estos son tus datos:
-  • ID Clínica:  ${clinicaId}
-  • API Key:     ${apiKey}
-  • Relay URL:   ${relayUrl}
-
-Dentro de PodoSystem ve a: Citas Web → Configuración → pega estos datos → Conectar → Sincronizar.
+${seccionCitas}
 
 ─────────────────────────────────────
 📥 DESCARGA

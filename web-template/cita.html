@@ -1,0 +1,1523 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pedir Cita Online — {{CLINICA_NOMBRE}}</title>
+  <meta name="description" content="Solicite su cita en la {{CLINICA_NOMBRE}}. {{CLINICA_DESCRIPCION}}. Llame al {{CLINICA_TELEFONO}} o rellene el formulario online.">
+  <link rel="icon" type="image/png" href="images/logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    /* ── CITA PAGE EXTRA STYLES ──────────────────────────────────── */
+
+    /* Hero playa */
+    .hero-cita {
+      position: relative;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      overflow: visible;
+      padding-top: var(--header-h);
+    }
+
+    .hero-cita__bg {
+      position: absolute;
+      inset: 0;
+      background:
+        url('images/hero-playa.png') center center / cover no-repeat;
+      transform: scale(1.04);
+      transition: transform 8s ease-out;
+    }
+    .hero-cita__bg.loaded { transform: scale(1); }
+
+    .hero-cita__overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(
+        135deg,
+        rgba(10, 30, 80, 0.58) 0%,
+        rgba(10, 30, 60, 0.40) 45%,
+        rgba(180, 90, 10, 0.22) 100%
+      );
+    }
+
+    /* Huellas decorativas SVG */
+    .footprint-deco {
+      position: absolute;
+      opacity: 0.22;
+      pointer-events: none;
+    }
+    .footprint-deco svg { fill: #f4d080; }
+
+    .hero-cita__inner {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      max-width: var(--max-w);
+      margin: 0 auto;
+      padding: 60px 24px 80px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: center;
+    }
+
+    /* Texto hero */
+    .hero-cita__text { color: #fff; }
+
+    .hero-cita__badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,255,255,0.15);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 50px;
+      padding: 6px 16px;
+      font-size: .78rem;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: #f4d080;
+      margin-bottom: 20px;
+    }
+    .hero-cita__badge span { color: #fff; opacity: .8; }
+
+    .hero-cita__title {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2.4rem, 5vw, 3.8rem);
+      font-weight: 700;
+      line-height: 1.15;
+      color: #fff;
+      margin-bottom: 16px;
+    }
+    .hero-cita__title em {
+      font-style: italic;
+      color: #f4d080;
+    }
+
+    .hero-cita__sub {
+      font-size: 1.05rem;
+      color: rgba(255,255,255,.82);
+      line-height: 1.7;
+      margin-bottom: 32px;
+      max-width: 420px;
+    }
+
+    .hero-cita__trust {
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+    .trust-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: rgba(255,255,255,.85);
+      font-size: .88rem;
+    }
+    .trust-item svg { color: #f4d080; flex-shrink: 0; }
+
+    /* Tarjeta formulario glassmorphism */
+    .cita-glass-card {
+      background: rgba(255,255,255,0.94);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-radius: 20px;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.4);
+      padding: 28px 28px;
+      position: relative;
+      overflow: visible;
+      align-self: start;
+    }
+
+    .cita-glass-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 4px;
+      background: linear-gradient(90deg, #1a237e, #c9a84c, #e07b2a);
+      border-radius: 20px 20px 0 0;
+    }
+
+    .cita-glass-card h2 {
+      font-size: 1.4rem;
+      margin-bottom: 4px;
+      color: var(--navy);
+    }
+    .cita-glass-card .card-sub {
+      font-size: .88rem;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+
+    /* Form styles dentro de la card */
+    .cita-glass-card .form-group {
+      margin-bottom: 10px;
+    }
+    .cita-glass-card label {
+      display: block;
+      font-size: .82rem;
+      font-weight: 700;
+      color: var(--navy);
+      margin-bottom: 5px;
+      letter-spacing: .02em;
+    }
+    .required { color: #c9a84c; }
+    .optional { color: var(--muted); font-weight: 400; }
+
+    .cita-glass-card input,
+    .cita-glass-card select,
+    .cita-glass-card textarea {
+      width: 100%;
+      padding: 11px 14px;
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      font-size: .93rem;
+      color: var(--text);
+      background: #fafbff;
+      transition: border-color var(--trans), box-shadow var(--trans);
+      outline: none;
+    }
+    .cita-glass-card input:focus,
+    .cita-glass-card select:focus,
+    .cita-glass-card textarea:focus {
+      border-color: var(--gold);
+      box-shadow: 0 0 0 3px rgba(201,168,76,.15);
+      background: #fff;
+    }
+    .cita-glass-card input.invalid,
+    .cita-glass-card select.invalid { border-color: #e74c3c; }
+
+    .form-row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .cita-glass-card textarea { resize: vertical; min-height: 56px; }
+
+    .form-privacy {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin: 10px 0 8px;
+      padding: 10px 12px;
+      background: rgba(26, 35, 126, 0.05);
+      border-radius: 8px;
+      border: 1px solid rgba(26, 35, 126, 0.10);
+    }
+    .form-privacy input[type=checkbox] {
+      margin-top: 2px;
+      flex-shrink: 0;
+      width: 16px;
+      height: 16px;
+      accent-color: var(--navy);
+      cursor: pointer;
+    }
+    .form-privacy label {
+      font-size: .77rem;
+      color: #444;
+      font-weight: 400;
+      line-height: 1.45;
+      cursor: pointer;
+    }
+    .form-privacy a { color: var(--navy); text-decoration: underline; }
+
+    .btn-submit-cita {
+      width: 100%;
+      padding: 15px;
+      background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: .04em;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      transition: all .3s ease;
+      box-shadow: 0 6px 20px rgba(26,35,126,.3);
+    }
+    .btn-submit-cita:hover {
+      background: linear-gradient(135deg, #111660 0%, #1a237e 100%);
+      transform: translateY(-2px);
+      box-shadow: 0 10px 28px rgba(26,35,126,.4);
+    }
+    .btn-submit-cita:active { transform: translateY(0); }
+
+    /* Success state */
+
+    /* ── WEEK NAV ─────────────────────────────────────────────── */
+    .week-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .week-nav-btn {
+      background: none;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 6px 14px;
+      font-size: .85rem;
+      cursor: pointer;
+      color: #475569;
+      transition: all .15s;
+      font-weight: 600;
+    }
+    .week-nav-btn:hover { border-color: var(--navy); color: var(--navy); }
+    .week-nav-btn:disabled { opacity: .35; cursor: default; }
+    .week-label { font-weight: 700; font-size: .9rem; color: var(--navy); }
+
+    /* ── WEEK GRID ─────────────────────────────────────────────── */
+    .week-grid-wrap {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      margin: 0 -4px;
+    }
+    .week-grid {
+      display: grid;
+      min-width: 340px;
+      gap: 2px;
+    }
+    .wg-header {
+      display: contents;
+    }
+    .wg-day-header {
+      text-align: center;
+      padding: 6px 4px;
+      font-size: .78rem;
+      font-weight: 700;
+      color: #64748b;
+      border-radius: 8px 8px 0 0;
+      background: #f8fafc;
+    }
+    .wg-day-header.hoy { background: #fef3c7; color: #92400e; }
+    .wg-day-header.no-laboral { color: #cbd5e1; }
+    .wg-time-label {
+      font-size: .72rem;
+      color: #94a3b8;
+      padding: 4px 4px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .wg-slot {
+      border-radius: 6px;
+      padding: 5px 2px;
+      text-align: center;
+      font-size: .78rem;
+      font-weight: 600;
+      transition: all .15s;
+      line-height: 1.2;
+    }
+    .wg-slot.libre {
+      background: #dcfce7;
+      color: #166534;
+      cursor: pointer;
+      border: 1.5px solid #86efac;
+    }
+    .wg-slot.libre:hover { background: #16a34a; color: #fff; border-color: #16a34a; }
+    .wg-slot.ocupado {
+      background: #fee2e2;
+      color: #991b1b;
+      border: 1.5px solid #fca5a5;
+      cursor: default;
+    }
+    .wg-slot.bloqueado {
+      background: #fee2e2;
+      color: #b91c1c;
+      border: 1.5px solid #fca5a5;
+      cursor: default;
+      opacity: .7;
+    }
+    .wg-slot.sin-datos {
+      background: #f8fafc;
+      border: 1.5px solid #f1f5f9;
+      cursor: default;
+    }
+    .wg-slot.selected {
+      background: var(--navy) !important;
+      color: #fff !important;
+      border-color: var(--navy) !important;
+      box-shadow: 0 2px 8px rgba(26,35,126,.3);
+    }
+    .week-legend {
+      display: flex;
+      gap: 14px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .wl-item { display: flex; align-items: center; gap: 5px; font-size: .75rem; color: #64748b; }
+    .wl-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+    .wl-dot.libre   { background: #dcfce7; border: 1.5px solid #86efac; }
+    .wl-dot.ocupado { background: #fee2e2; border: 1.5px solid #fca5a5; }
+    .wl-dot.vacio   { background: #f8fafc; border: 1.5px solid #f1f5f9; }
+
+    /* ── STEPS INDICATOR ─────────────────────────────────────── */
+    .steps-indicator {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      margin-bottom: 22px;
+    }
+    .step-dot {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .dot-num {
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      background: #e2e8f0;
+      color: #94a3b8;
+      font-size: .8rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background .3s, color .3s;
+    }
+    .dot-label {
+      font-size: .7rem;
+      color: #94a3b8;
+      font-weight: 600;
+      letter-spacing: .02em;
+      transition: color .3s;
+      white-space: nowrap;
+    }
+    .step-dot.active .dot-num,
+    .step-dot.done .dot-num  { background: var(--navy); color: #fff; }
+    .step-dot.active .dot-label,
+    .step-dot.done .dot-label { color: var(--navy); }
+    .step-line {
+      flex: 1;
+      height: 2px;
+      background: #e2e8f0;
+      min-width: 28px;
+      margin: 0 4px;
+      margin-bottom: 18px;
+    }
+
+    /* ── BOOKING STEPS ────────────────────────────────────────── */
+    .booking-step { display: none; }
+    .booking-step.active { display: block; }
+    .btn-back {
+      background: none;
+      border: none;
+      color: #64748b;
+      font-size: .84rem;
+      cursor: pointer;
+      padding: 0;
+      margin-bottom: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .btn-back:hover { color: var(--navy); }
+    .tel-fallback {
+      text-align: center;
+      font-size: .82rem;
+      color: #94a3b8;
+      margin-top: 14px;
+    }
+    .tel-fallback a { color: var(--navy); font-weight: 600; text-decoration: none; }
+
+    /* ── CALENDAR ─────────────────────────────────────────────── */
+    .calendar-wrap { user-select: none; }
+    .cal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .cal-month-label { font-weight: 700; font-size: 1rem; color: var(--navy); }
+    .cal-nav {
+      background: none;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      width: 32px;
+      height: 32px;
+      cursor: pointer;
+      font-size: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #64748b;
+      transition: background .15s;
+    }
+    .cal-nav:hover { background: #f1f5f9; }
+    .cal-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 4px;
+    }
+    .cal-day-label {
+      text-align: center;
+      font-size: .7rem;
+      font-weight: 700;
+      color: #94a3b8;
+      padding: 4px 0;
+      letter-spacing: .04em;
+    }
+    .cal-day {
+      aspect-ratio: 1;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: .85rem;
+      font-weight: 500;
+      cursor: default;
+      color: #cbd5e1;
+      transition: background .15s, color .15s;
+    }
+    .cal-day.available {
+      background: #e0f7f0;
+      color: var(--navy);
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .cal-day.available:hover { background: var(--navy); color: #fff; }
+    .cal-day.selected { background: var(--navy) !important; color: #fff !important; }
+    .cal-day.today { outline: 2px solid #f4a93a; outline-offset: -2px; }
+
+    /* ── SLOTS ────────────────────────────────────────────────── */
+    .slots-wrap { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+    .slot-btn {
+      padding: 10px 18px;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      background: #fff;
+      color: var(--navy);
+      font-size: .9rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: border-color .15s, background .15s, color .15s;
+    }
+    .slot-btn:hover { border-color: var(--navy); background: #f0f6ff; }
+    .slot-btn.selected { border-color: var(--navy); background: var(--navy); color: #fff; }
+    .slots-loading { color: #94a3b8; font-size: .9rem; padding: 12px 0; }
+
+    /* ── SUCCESS ──────────────────────────────────────────────── */
+    .form-success-cita {
+      display: none;
+      text-align: center;
+      padding: 24px 0;
+    }
+    .success-circle {
+      width: 72px; height: 72px;
+      background: linear-gradient(135deg, #27ae60, #2ecc71);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px;
+      animation: popIn .5s cubic-bezier(.34,1.56,.64,1) both;
+    }
+    @keyframes popIn {
+      from { transform: scale(0); opacity: 0; }
+      to   { transform: scale(1); opacity: 1; }
+    }
+    .success-circle svg { stroke: #fff; }
+    .form-success-cita h3 { color: var(--navy); margin-bottom: 10px; }
+    .form-success-cita p { font-size: .92rem; }
+    .form-success-cita .tel-link { color: var(--navy); font-weight: 700; text-decoration: underline; }
+
+    /* Wave bottom del hero */
+    .hero-wave-bottom {
+      position: absolute;
+      bottom: -1px; left: 0; right: 0;
+      z-index: 3;
+    }
+
+    /* ── COMO FUNCIONA ─────────────────────────────────────────────── */
+    .como-funciona {
+      background: linear-gradient(180deg, #f8f6ef 0%, #fff 100%);
+      padding: 80px 0;
+    }
+
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 32px;
+      margin-top: 48px;
+      position: relative;
+    }
+
+    .steps-grid::before {
+      content: '';
+      position: absolute;
+      top: 36px; left: 16.6%; right: 16.6%;
+      height: 2px;
+      background: linear-gradient(90deg, var(--gold), var(--gold-light), var(--gold));
+      opacity: .4;
+    }
+
+    .step-card {
+      text-align: center;
+      padding: 32px 24px;
+      background: #fff;
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-sm);
+      transition: transform var(--trans), box-shadow var(--trans);
+      position: relative;
+    }
+    .step-card:hover {
+      transform: translateY(-6px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .step-number {
+      width: 72px; height: 72px;
+      background: linear-gradient(135deg, var(--navy), var(--navy-light));
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 20px;
+      position: relative;
+      z-index: 1;
+    }
+    .step-number span {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .step-icon {
+      margin: 0 auto 16px;
+      color: var(--gold);
+    }
+
+    .step-card h3 { margin-bottom: 8px; font-size: 1.1rem; }
+    .step-card p  { font-size: .9rem; }
+
+    /* ── POR QUE NOSOTROS ──────────────────────────────────────────── */
+    .why-us { background: #fff; padding: 80px 0; }
+
+    .why-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 28px;
+      margin-top: 48px;
+    }
+
+    .why-card {
+      padding: 36px 28px;
+      border-radius: var(--radius-lg);
+      border: 1.5px solid var(--border);
+      transition: all var(--trans);
+      position: relative;
+      overflow: hidden;
+    }
+    .why-card::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--navy), var(--gold));
+      transform: scaleX(0);
+      transform-origin: left;
+      transition: transform var(--trans);
+    }
+    .why-card:hover { border-color: transparent; box-shadow: var(--shadow-md); transform: translateY(-4px); }
+    .why-card:hover::after { transform: scaleX(1); }
+
+    .why-card__icon {
+      width: 56px; height: 56px;
+      background: linear-gradient(135deg, rgba(26,35,126,.08), rgba(26,35,126,.14));
+      border-radius: 14px;
+      display: flex; align-items: center; justify-content: center;
+      margin-bottom: 20px;
+      color: var(--navy);
+    }
+    .why-card h3 { margin-bottom: 10px; }
+    .why-card p  { font-size: .92rem; }
+
+    /* ── CONTACTO ALTERNATIVO ──────────────────────────────────────── */
+    .contacto-alt {
+      background: linear-gradient(135deg, var(--navy-dark) 0%, var(--navy) 100%);
+      padding: 72px 0;
+      position: relative;
+      overflow: hidden;
+    }
+    .contacto-alt::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+    }
+
+    .contacto-alt__inner {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 24px;
+      align-items: center;
+    }
+
+    .contacto-block {
+      text-align: center;
+      padding: 28px 20px;
+      background: rgba(255,255,255,0.07);
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(255,255,255,0.1);
+      transition: background var(--trans);
+    }
+    .contacto-block:hover { background: rgba(255,255,255,0.13); }
+
+    .contacto-block a { display: block; text-decoration: none; }
+    .contacto-block__icon {
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      margin: 0 auto 14px;
+    }
+    .contacto-block__icon--phone  { background: rgba(255,255,255,.15); color: #fff; }
+    .contacto-block__icon--wa     { background: #25d366; color: #fff; }
+    .contacto-block__icon--insta  { background: linear-gradient(135deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888); color: #fff; }
+
+    .contacto-block__label {
+      font-size: .75rem;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      color: rgba(255,255,255,.55);
+      margin-bottom: 4px;
+    }
+    .contacto-block__value {
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    /* ── HORARIO STRIP ─────────────────────────────────────────────── */
+    .horario-strip {
+      background: #f8f6ef;
+      padding: 48px 0;
+    }
+    .horario-strip__inner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 64px;
+      flex-wrap: wrap;
+    }
+    .horario-item {
+      text-align: center;
+    }
+    .horario-item__day {
+      font-size: .82rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+    .horario-item__time {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.35rem;
+      font-weight: 600;
+      color: var(--navy);
+    }
+    .horario-divider {
+      width: 1px; height: 56px;
+      background: var(--border);
+    }
+
+    /* ── PODOSYSTEM BADGE ──────────────────────────────────────────── */
+    .podosystem-banner {
+      background: linear-gradient(90deg, #0d2d6b 0%, #1a4f8a 50%, #0d2d6b 100%);
+      padding: 16px 0;
+      text-align: center;
+    }
+    .podosystem-banner__inner {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      color: rgba(255,255,255,.7);
+      font-size: .82rem;
+    }
+    .podosystem-banner__inner strong {
+      color: #fff;
+      font-weight: 700;
+    }
+    .ps-logo-mini {
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 6px;
+      padding: 4px 10px;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    .ps-logo-mini span {
+      font-weight: 700;
+      color: #fff;
+      font-size: .85rem;
+    }
+    .ps-logo-mini span em { color: #2ecc9a; font-style: normal; }
+
+    /* ── RESPONSIVE ────────────────────────────────────────────────── */
+    @media (max-width: 900px) {
+      .hero-cita__inner { grid-template-columns: 1fr; }
+      .hero-cita__text { text-align: center; }
+      .hero-cita__sub { max-width: 100%; }
+      .hero-cita__trust { justify-content: center; }
+      .steps-grid { grid-template-columns: 1fr; }
+      .steps-grid::before { display: none; }
+      .why-grid { grid-template-columns: 1fr; }
+      .contacto-alt__inner { grid-template-columns: 1fr; }
+      .horario-strip__inner { gap: 32px; }
+      .horario-divider { display: none; }
+      .form-row-2 { grid-template-columns: 1fr; }
+    }
+
+    /* ── MÓVIL PEQUEÑO (<480px) ─────────────────────────────────── */
+    @media (max-width: 480px) {
+      /* Tarjeta booking: reducir padding para ganar ancho interior */
+      .hero-cita__inner  { padding: 20px 14px 40px; }
+      .cita-glass-card   { padding: 20px 16px; }
+
+      /* Navegación de semana: caben los tres elementos */
+      .week-nav-btn {
+        padding: 5px 10px;
+        font-size: .78rem;
+      }
+      .week-label { font-size: .82rem; }
+
+      /* Título del hero cita */
+      .hero-cita__title { font-size: 2rem; }
+
+      /* Indicador de pasos: no desborda */
+      .dot-label { font-size: .65rem; }
+      .step-line  { min-width: 16px; }
+    }
+
+    /* Fade-up animation */
+    .fade-up {
+      opacity: 0;
+      transform: translateY(28px);
+      transition: opacity .7s ease, transform .7s ease;
+    }
+    .fade-up.visible {
+      opacity: 1;
+      transform: none;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER (igual que el resto del sitio) -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a href="index.html" class="header-logo" aria-label="Inicio — {{CLINICA_NOMBRE}}">
+        <img src="images/logo.png" alt="Logo {{CLINICA_NOMBRE}}" width="52" height="52">
+        <span class="header-name">{{CLINICA_NOMBRE_HEADER}}</span>
+      </a>
+      <button class="hamburger" aria-label="Abrir menú" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+      <nav class="nav-menu" aria-label="Navegación principal">
+        <a href="index.html">Inicio</a>
+        <a href="servicios.html">Servicios</a>
+        <a href="podologo.html">El Podólogo</a>
+        <a href="localizacion.html">Localización</a>
+        <a href="cita.html" class="nav-cta">Pedir Cita</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- ══════════════════════════════════════
+       HERO CON FOTO DE PLAYA
+  ══════════════════════════════════════ -->
+  <section class="hero-cita" aria-labelledby="hero-title">
+
+    <div class="hero-cita__bg" id="heroBg"></div>
+    <div class="hero-cita__overlay"></div>
+
+    <!-- Huellas decorativas -->
+    <div class="footprint-deco" style="bottom:120px;left:5%;transform:rotate(-15deg)">
+      <svg width="28" height="44" viewBox="0 0 28 44"><ellipse cx="14" cy="32" rx="10" ry="12"/><circle cx="6" cy="16" r="4"/><circle cx="11" cy="10" r="3.5"/><circle cx="17" cy="8" r="3.5"/><circle cx="22" cy="12" r="3"/></svg>
+    </div>
+    <div class="footprint-deco" style="bottom:80px;left:9%;transform:rotate(-15deg) scaleX(-1)">
+      <svg width="24" height="38" viewBox="0 0 28 44"><ellipse cx="14" cy="32" rx="10" ry="12"/><circle cx="6" cy="16" r="4"/><circle cx="11" cy="10" r="3.5"/><circle cx="17" cy="8" r="3.5"/><circle cx="22" cy="12" r="3"/></svg>
+    </div>
+    <div class="footprint-deco" style="top:30%;right:4%;transform:rotate(10deg);opacity:.08">
+      <svg width="36" height="56" viewBox="0 0 28 44"><ellipse cx="14" cy="32" rx="10" ry="12"/><circle cx="6" cy="16" r="4"/><circle cx="11" cy="10" r="3.5"/><circle cx="17" cy="8" r="3.5"/><circle cx="22" cy="12" r="3"/></svg>
+    </div>
+
+    <div class="hero-cita__inner">
+
+      <!-- Texto izquierda -->
+      <div class="hero-cita__text">
+        <div class="hero-cita__badge">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span>Cita online</span> — Rápido y sin esperas
+        </div>
+
+        <h1 id="hero-title" class="hero-cita__title">
+          Cada paso<br>
+          <em>merece cuidado</em>
+        </h1>
+
+        <p class="hero-cita__sub">
+          Solicite su visita en nuestra clínica de podología en Dos Hermanas (Sevilla).
+          Más de 25 años cuidando la salud de sus pies.
+        </p>
+
+        <div class="hero-cita__trust">
+          <div class="trust-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            Confirmación por WhatsApp
+          </div>
+          <div class="trust-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            Sin lista de espera
+          </div>
+          <div class="trust-item">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+            Atención personalizada
+          </div>
+        </div>
+      </div>
+
+      <!-- Tarjeta formulario — flujo 2 pasos (vista semanal) -->
+      <div class="cita-glass-card" role="main" id="booking-card">
+
+        <!-- Indicador de pasos -->
+        <div class="steps-indicator" id="steps-indicator">
+          <div class="step-dot active" id="dot-1">
+            <span class="dot-num">1</span><span class="dot-label">Elige día y hora</span>
+          </div>
+          <div class="step-line"></div>
+          <div class="step-dot" id="dot-2">
+            <span class="dot-num">2</span><span class="dot-label">Tus datos</span>
+          </div>
+        </div>
+
+        <!-- PASO 1: Vista semanal -->
+        <div id="step-1" class="booking-step active">
+          <h2>Selecciona día y hora</h2>
+          <div class="week-nav">
+            <button class="week-nav-btn" id="prev-week" disabled>← Anterior</button>
+            <span class="week-label" id="week-label">Cargando…</span>
+            <button class="week-nav-btn" id="next-week" disabled>Siguiente →</button>
+          </div>
+          <div class="week-grid-wrap">
+            <div class="week-grid" id="week-grid">
+              <p style="color:#94a3b8;font-size:.88rem;padding:20px 0;text-align:center;">Cargando disponibilidad…</p>
+            </div>
+          </div>
+          <div class="week-legend">
+            <div class="wl-item"><div class="wl-dot libre"></div> Libre</div>
+            <div class="wl-item"><div class="wl-dot ocupado"></div> Ocupado</div>
+            <div class="wl-item"><div class="wl-dot vacio"></div> Sin horario</div>
+          </div>
+          <p class="tel-fallback">¿Prefiere llamar? <a href="tel:{{CLINICA_TELEFONO_RAW}}">{{CLINICA_TELEFONO}}</a></p>
+        </div>
+
+        <!-- PASO 2: Datos del paciente -->
+        <div id="step-2" class="booking-step">
+          <button class="btn-back" id="back-to-1">← Cambiar horario</button>
+          <h2>Tus datos</h2>
+          <p class="card-sub" id="summary-line">–</p>
+
+          <form id="cita-form" novalidate>
+            <div id="form-error-msg" style="display:none;background:#fff0f0;border:1px solid #e74c3c;border-radius:10px;padding:10px 14px;margin-bottom:12px;color:#c0392b;font-size:.88rem;line-height:1.5" role="alert"></div>
+            <div class="form-group">
+              <label for="nombre">Nombre completo <span class="required">*</span></label>
+              <input type="text" id="nombre" name="nombre" placeholder="Ej: María García López" autocomplete="name">
+            </div>
+            <div class="form-row-2">
+              <div class="form-group">
+                <label for="telefono">Teléfono <span class="required">*</span></label>
+                <input type="tel" id="telefono" name="telefono" placeholder="600 123 456" autocomplete="tel">
+              </div>
+              <div class="form-group">
+                <label for="email">Email <span class="optional">(opc.)</span></label>
+                <input type="email" id="email" name="email" placeholder="correo@ejemplo.com" autocomplete="email">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="motivo">Motivo de consulta <span class="required">*</span></label>
+              <select id="motivo" name="motivo">
+                <option value="" disabled selected>Seleccione el motivo…</option>
+                <option value="Primera consulta">Primera consulta / Revisión general</option>
+                <option value="Quiropodia">Quiropodia (callos, durezas)</option>
+                <option value="Uña encarnada">Uña encarnada (onicocriptosis)</option>
+                <option value="Biomecánica">Biomecánica y plantillas</option>
+                <option value="Verruga plantar">Verruga plantar</option>
+                <option value="Pie diabético">Pie diabético</option>
+                <option value="Cirugía ungueal">Cirugía ungueal</option>
+                <option value="Ortesis">Ortesis digitales de silicona</option>
+                <option value="Otro">Otro</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="observaciones">Observaciones <span class="optional">(opcional)</span></label>
+              <textarea id="observaciones" name="observaciones" rows="2" placeholder="Describa brevemente su problema…"></textarea>
+            </div>
+            <div class="form-privacy">
+              <input type="checkbox" id="privacidad" name="privacidad">
+              <label for="privacidad">
+                He leído y acepto la <a href="#">política de privacidad</a> y el tratamiento de mis datos personales para gestionar mi cita (RGPD UE 2016/679).
+              </label>
+            </div>
+            <button type="submit" class="btn-submit-cita" id="btn-submit">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              Confirmar cita
+            </button>
+          </form>
+        </div>
+
+        <!-- ÉXITO -->
+        <div id="step-success" class="booking-step form-success-cita" role="alert" aria-live="polite">
+          <div class="success-circle">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <h3>¡Cita confirmada!</h3>
+          <p id="success-detail" style="font-weight:600;color:#1a4f8a;margin:8px 0 4px"></p>
+          <p>Si necesita cambiarla, llámenos al <a href="tel:{{CLINICA_TELEFONO_RAW}}" class="tel-link">{{CLINICA_TELEFONO}}</a>.</p>
+          <p style="margin-top:10px;font-size:.82rem;color:#888">Ref: <span id="success-ref">–</span></p>
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- Ola de transición al contenido -->
+    <div class="hero-wave-bottom" aria-hidden="true">
+      <svg viewBox="0 0 1440 60" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg" style="display:block">
+        <path d="M0,30 C400,60 1040,0 1440,30 L1440,60 L0,60 Z" fill="#f8f6ef"/>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════
+       CÓMO FUNCIONA
+  ══════════════════════════════════════ -->
+  <section class="como-funciona" aria-labelledby="como-title">
+    <div class="container">
+      <div class="section-header fade-up">
+        <span class="section-label">Simple y rápido</span>
+        <h2 id="como-title">¿Cómo funciona?</h2>
+        <p class="section-subtitle">Tres pasos para tener su cita confirmada</p>
+      </div>
+
+      <div class="steps-grid">
+        <div class="step-card fade-up">
+          <div class="step-number"><span>1</span></div>
+          <div class="step-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="8" cy="15" r="1" fill="currentColor"/><circle cx="12" cy="15" r="1" fill="currentColor"/></svg>
+          </div>
+          <h3>Elige día y hora</h3>
+          <p>Selecciona un día con huecos disponibles y la hora que mejor te venga. La cita queda reservada al instante.</p>
+        </div>
+
+        <div class="step-card fade-up" style="transition-delay:.15s">
+          <div class="step-number"><span>2</span></div>
+          <div class="step-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </div>
+          <h3>Introduce tus datos</h3>
+          <p>Nombre, teléfono y motivo de consulta. Recibirás la confirmación con tu número de referencia.</p>
+        </div>
+
+        <div class="step-card fade-up" style="transition-delay:.3s">
+          <div class="step-number"><span>3</span></div>
+          <div class="step-icon">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          </div>
+          <h3>Ven a la clínica</h3>
+          <p>Sin esperas ni llamadas. Tu cita está confirmada. Te atendemos de forma personalizada en Dos Hermanas.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════
+       HORARIO
+  ══════════════════════════════════════ -->
+  <div class="horario-strip" aria-label="Horario de atención">
+    <div class="container">
+      <div class="horario-strip__inner">
+        <div class="horario-item fade-up">
+          <div class="horario-item__day">Lunes — Viernes</div>
+          <div class="horario-item__time">9:00 — 14:00</div>
+        </div>
+        <div class="horario-divider"></div>
+        <div class="horario-item fade-up" style="transition-delay:.1s">
+          <div class="horario-item__day">Lunes — Viernes</div>
+          <div class="horario-item__time">16:00 — 19:30</div>
+        </div>
+        <div class="horario-divider"></div>
+        <div class="horario-item fade-up" style="transition-delay:.2s">
+          <div class="horario-item__day">Sábados y festivos</div>
+          <div class="horario-item__time" style="color:var(--muted);font-size:1.1rem">Cerrado</div>
+        </div>
+        <div class="horario-divider"></div>
+        <div class="horario-item fade-up" style="transition-delay:.3s">
+          <div class="horario-item__day">Teléfono</div>
+          <div class="horario-item__time">
+            <a href="tel:{{CLINICA_TELEFONO_RAW}}" style="color:var(--navy);text-decoration:none">{{CLINICA_TELEFONO}}</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════
+       POR QUÉ NOSOTROS
+  ══════════════════════════════════════ -->
+  <section class="why-us" aria-labelledby="why-title">
+    <div class="container">
+      <div class="section-header fade-up">
+        <span class="section-label">Nuestra clínica</span>
+        <h2 id="why-title">¿Por qué elegir la Clínica del Pie?</h2>
+      </div>
+
+      <div class="why-grid">
+        <div class="why-card fade-up">
+          <div class="why-card__icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
+          </div>
+          <h3>Atención personalizada</h3>
+          <p>Cada paciente recibe un tratamiento adaptado a sus necesidades específicas, sin prisas y con total dedicación.</p>
+        </div>
+
+        <div class="why-card fade-up" style="transition-delay:.15s">
+          <div class="why-card__icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><circle cx="8" cy="10" r="1" fill="currentColor"/><circle cx="12" cy="8" r="1" fill="currentColor"/><circle cx="16" cy="10" r="1" fill="currentColor"/><path d="M8 10 Q10 7 12 8 Q14 9 16 10" stroke-width="1.5"/></svg>
+          </div>
+          <h3>Tecnología avanzada</h3>
+          <p>Equipamiento de última generación y gestión digital con PodoSystem para el seguimiento preciso de su historial clínico.</p>
+        </div>
+
+        <div class="why-card fade-up" style="transition-delay:.3s">
+          <div class="why-card__icon">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          </div>
+          <h3>Más de 25 años de experiencia</h3>
+          <p>Desde el año 2000 cuidando la salud podológica de los vecinos de Dos Hermanas y comarca con resultados probados.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════
+       CONTACTO DIRECTO
+  ══════════════════════════════════════ -->
+  <section class="contacto-alt" aria-labelledby="contacto-title">
+    <div class="container">
+      <div class="section-header fade-up" style="margin-bottom:40px">
+        <span class="section-label" style="color:rgba(255,255,255,.5)">¿Prefiere contactar directamente?</span>
+        <h2 id="contacto-title" style="color:#fff">Estamos a su disposición</h2>
+      </div>
+
+      <div class="contacto-alt__inner">
+        <div class="contacto-block fade-up">
+          <a href="tel:{{CLINICA_TELEFONO_RAW}}">
+            <div class="contacto-block__icon contacto-block__icon--phone">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 10.8 19.79 19.79 0 01.22 2.18 2 2 0 012.2 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.09a16 16 0 006 6l.56-.56a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
+            </div>
+            <p class="contacto-block__label">Llamar ahora</p>
+            <p class="contacto-block__value">{{CLINICA_TELEFONO}}</p>
+          </a>
+        </div>
+
+        <div class="contacto-block fade-up" style="transition-delay:.15s">
+          <a href="https://wa.me/34{{CLINICA_TELEFONO_RAW}}?text=Hola%2C%20me%20gustar%C3%ADa%20pedir%20cita" target="_blank" rel="noopener noreferrer">
+            <div class="contacto-block__icon contacto-block__icon--wa">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.556 4.122 1.528 5.855L.057 23.428a.5.5 0 00.515.572l5.736-1.504A11.953 11.953 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.916 0-3.71-.507-5.253-1.393l-.376-.22-3.899 1.022 1.04-3.794-.243-.389A9.953 9.953 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg>
+            </div>
+            <p class="contacto-block__label">WhatsApp</p>
+            <p class="contacto-block__value">Enviar mensaje</p>
+          </a>
+        </div>
+
+        <div class="contacto-block fade-up" style="transition-delay:.3s">
+          <a href="https://www.instagram.com/clinicadelpiefranciscoromán" target="_blank" rel="noopener noreferrer">
+            <div class="contacto-block__icon contacto-block__icon--insta">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+            </div>
+            <p class="contacto-block__label">Instagram</p>
+            <p class="contacto-block__value">@clinicadelpie</p>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════
+       FOOTER
+  ══════════════════════════════════════ -->
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-brand">
+        <a href="index.html" aria-label="Inicio">
+          <img src="images/logo.png" alt="Logo {{CLINICA_NOMBRE}}" width="60" height="60">
+        </a>
+        <div>
+          <strong class="footer-clinic-name">Clínica del Pie<br>Francisco Román</strong>
+          <address class="footer-address">
+            Avda de España 129 Local<br>
+            41702 Dos Hermanas (Sevilla)<br>
+            <a href="tel:{{CLINICA_TELEFONO_RAW}}">{{CLINICA_TELEFONO}}</a>
+          </address>
+        </div>
+      </div>
+      <nav class="footer-nav" aria-label="Navegación del pie de página">
+        <a href="index.html">Inicio</a>
+        <a href="servicios.html">Servicios</a>
+        <a href="podologo.html">El Podólogo</a>
+        <a href="localizacion.html">Localización</a>
+        <a href="cita.html">Pedir Cita</a>
+      </nav>
+      <div class="footer-bottom">
+        <p>© 2025 {{CLINICA_NOMBRE}}. Todos los derechos reservados.</p>
+        <p class="footer-rgpd">Sus datos son tratados conforme al RGPD (UE) 2016/679. <a href="#">Política de privacidad</a></p>
+      </div>
+    </div>
+  </footer>
+
+  <!-- BANNER PODOSYSTEM -->
+  <div class="podosystem-banner" aria-label="Powered by PodoSystem">
+    <div class="podosystem-banner__inner">
+      <span>Gestión de citas gestionada con</span>
+      <div class="ps-logo-mini">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+          <ellipse cx="12" cy="14" rx="7" ry="8" fill="#1a5fa8"/>
+          <ellipse cx="12" cy="14" rx="4" ry="5" fill="#2ecc9a" opacity=".8"/>
+          <circle cx="8" cy="5" r="2" fill="#1a5fa8"/>
+          <circle cx="10" cy="3" r="1.8" fill="#1a5fa8"/>
+          <circle cx="12.5" cy="2.5" r="1.8" fill="#1a5fa8"/>
+          <circle cx="15" cy="3.5" r="1.5" fill="#1a5fa8"/>
+        </svg>
+        <span>Podo<em>System</em></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- WHATSAPP flotante -->
+  <a href="https://wa.me/34{{CLINICA_TELEFONO_RAW}}?text=Hola%2C%20me%20gustar%C3%ADa%20pedir%20cita" class="whatsapp-btn" target="_blank" rel="noopener noreferrer" title="Contactar por WhatsApp" aria-label="Contactar por WhatsApp">
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413z"/>
+      <path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.556 4.122 1.528 5.855L.057 23.428a.5.5 0 00.515.572l5.736-1.504A11.953 11.953 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.916 0-3.71-.507-5.253-1.393l-.376-.22-3.899 1.022 1.04-3.794-.243-.389A9.953 9.953 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
+    </svg>
+  </a>
+
+  <script src="js/main.js"></script>
+  <script>
+    // Parallax suave en el hero
+    const heroBg = document.getElementById('heroBg');
+    setTimeout(() => heroBg && heroBg.classList.add('loaded'), 100);
+
+    window.addEventListener('scroll', () => {
+      if (!heroBg) return;
+      const y = window.scrollY;
+      heroBg.style.transform = `scale(1) translateY(${y * 0.3}px)`;
+    }, { passive: true });
+
+    // Fade-up con IntersectionObserver
+    const fadeEls = document.querySelectorAll('.fade-up');
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('visible');
+          observer.unobserve(e.target);
+        }
+      });
+    }, { threshold: 0.12 });
+    fadeEls.forEach(el => observer.observe(el));
+
+    // ── PodoSystem Relay config ─────────────────────────────────
+    const RELAY_URL  = 'https://podosystem-relay-production.up.railway.app';
+    const CLINICA_ID = new URLSearchParams(window.location.search).get('clinica') || '{{CLINICA_ID}}';
+    // ────────────────────────────────────────────────────────────
+
+    const MESES_CORTOS = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+    const MESES_LARGOS = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+    let desdeActual   = null;  // ISO date string — inicio de la ventana visible
+    let ventanaInicio = null;
+    let ventanaFin    = null;
+    let duracionSlot  = 30;
+    let selectedFecha = null;
+    let selectedHora  = null;
+    let semanaData    = null;
+
+    // Sumar N días a una fecha ISO
+    function sumarDias(fechaStr, n) {
+      const d = new Date(fechaStr + 'T12:00:00Z');
+      d.setUTCDate(d.getUTCDate() + n);
+      return d.toISOString().slice(0, 10);
+    }
+
+    // ── Paso 1/2 indicators ─────────────────────────────────────
+    function showStep(n) {
+      ['step-1','step-2','step-success'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.toggle('active', id === 'step-' + n);
+      });
+      document.getElementById('steps-indicator').style.display = (n === 'success') ? 'none' : 'flex';
+      for (let i = 1; i <= 2; i++) {
+        const dot = document.getElementById('dot-' + i);
+        if (!dot) continue;
+        dot.classList.remove('active', 'done');
+        if (i < n) dot.classList.add('done');
+        else if (i === n) dot.classList.add('active');
+      }
+    }
+
+    // ── Cargar y renderizar semana ──────────────────────────────
+    async function cargarSemana(desde) {
+      document.getElementById('week-grid').innerHTML = '<p style="color:#94a3b8;font-size:.88rem;padding:20px 0;text-align:center;grid-column:1/-1;">Cargando…</p>';
+      document.getElementById('week-label').textContent = 'Cargando…';
+      document.getElementById('prev-week').disabled = true;
+      document.getElementById('next-week').disabled = true;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 9000);
+
+      try {
+        const res  = await fetch(`${RELAY_URL}/api/semana/${CLINICA_ID}?desde=${desde}`, { signal: controller.signal });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error);
+
+        semanaData    = data;
+        desdeActual   = data.semanaInicio;   // primer día del bloque visible
+        ventanaInicio = data.ventanaInicio;
+        ventanaFin    = data.ventanaFin;
+        duracionSlot  = data.duracionSlot || 30;
+
+        renderWeekGrid(data);
+        updateNavButtons();
+      } catch (e) {
+        const msg = e.name === 'AbortError'
+          ? 'La conexión tardó demasiado. Llámenos al <a href="tel:{{CLINICA_TELEFONO_RAW}}" style="color:#1a5fa8">{{CLINICA_TELEFONO}}</a>.'
+          : 'No se pudo cargar la disponibilidad. Llámenos al <a href="tel:{{CLINICA_TELEFONO_RAW}}" style="color:#1a5fa8">{{CLINICA_TELEFONO}}</a>.';
+        document.getElementById('week-grid').innerHTML = `<p style="color:#e74c3c;font-size:.88rem;padding:20px 0;text-align:center;grid-column:1/-1;">${msg}</p>`;
+        document.getElementById('week-label').textContent = 'Sin conexión';
+      } finally {
+        clearTimeout(timeout);
+        document.getElementById('prev-week').disabled = desdeActual ? desdeActual <= ventanaInicio : false;
+        document.getElementById('next-week').disabled = false;
+      }
+    }
+
+    function updateNavButtons() {
+      if (!desdeActual || !ventanaInicio || !ventanaFin) return;
+      const prevDesde = sumarDias(desdeActual, -7);
+      const nextDesde = sumarDias(desdeActual, 7);
+      document.getElementById('prev-week').disabled = prevDesde < ventanaInicio;
+      document.getElementById('next-week').disabled = nextDesde > ventanaFin;
+    }
+
+    function renderWeekGrid(data) {
+      const label = document.getElementById('week-label');
+      if (!data.dias || data.dias.length === 0) {
+        document.getElementById('week-grid').innerHTML = '<p style="color:#94a3b8;padding:20px 0;text-align:center;grid-column:1/-1;">Sin disponibilidad online. Llámenos al {{CLINICA_TELEFONO}}.</p>';
+        return;
+      }
+
+      const dias = data.dias;
+
+      // Recoger todas las horas únicas (de todos los días)
+      const todasHoras = [...new Set(dias.flatMap(d => d.slots.map(s => s.hora)))].sort();
+
+      if (todasHoras.length === 0) {
+        document.getElementById('week-grid').innerHTML = '<p style="color:#94a3b8;padding:20px 0;text-align:center;grid-column:1/-1;">Sin horario configurado para esta semana.</p>';
+        return;
+      }
+
+      // Número de columnas: 1 (time label) + días con horario
+      const diasConHorario = dias.filter(d => d.trabajado);
+      const numCols = 1 + diasConHorario.length;
+
+      // Update label
+      const primerDia = dias[0];
+      const ultimoDia = dias[6];
+      const mesInicio = MESES_CORTOS[primerDia.mes - 1];
+      const mesFin    = MESES_CORTOS[ultimoDia.mes - 1];
+      label.textContent = mesInicio === mesFin
+        ? `${primerDia.dia} – ${ultimoDia.dia} de ${MESES_LARGOS[primerDia.mes - 1]}`
+        : `${primerDia.dia} ${mesInicio} – ${ultimoDia.dia} ${mesFin}`;
+
+      const wrap = document.getElementById('week-grid');
+      wrap.style.gridTemplateColumns = `44px repeat(${diasConHorario.length}, 1fr)`;
+      wrap.innerHTML = '';
+
+      // Cabecera: celda vacía + headers de día
+      const emptyHeader = document.createElement('div');
+      wrap.appendChild(emptyHeader);
+
+      const hoyStr = new Date().toISOString().slice(0, 10);
+      diasConHorario.forEach(d => {
+        const h = document.createElement('div');
+        h.className = 'wg-day-header' + (d.fecha === hoyStr ? ' hoy' : '');
+        h.innerHTML = `<div>${d.nombre}</div><div style="font-size:1rem;font-weight:800;color:inherit">${d.dia}</div>`;
+        wrap.appendChild(h);
+      });
+
+      // Filas de slots
+      todasHoras.forEach(hora => {
+        // Label de hora
+        const timeLabel = document.createElement('div');
+        timeLabel.className = 'wg-time-label';
+        timeLabel.textContent = hora;
+        wrap.appendChild(timeLabel);
+
+        diasConHorario.forEach(d => {
+          const slotInfo = d.slots.find(s => s.hora === hora);
+          const cell = document.createElement('div');
+          cell.className = 'wg-slot';
+
+          if (!slotInfo) {
+            // Hora fuera del horario del día (ej: tarde del jueves) → aparece en rojo
+            cell.classList.add('ocupado');
+            cell.title = 'Sin horario';
+          } else if (!d.enVentana || d.bloqueada) {
+            cell.classList.add(d.bloqueada ? 'bloqueado' : 'ocupado');
+            cell.title = d.bloqueada ? 'Día bloqueado' : 'Fuera de ventana de reserva';
+          } else if (slotInfo.libre) {
+            cell.classList.add('libre');
+            if (d.fecha === selectedFecha && hora === selectedHora) cell.classList.add('selected');
+            cell.addEventListener('click', () => pickSlot(d.fecha, hora, cell));
+          } else {
+            cell.classList.add('ocupado');
+            cell.title = 'Ya reservado';
+          }
+
+          wrap.appendChild(cell);
+        });
+      });
+    }
+
+    // ── Seleccionar slot → paso 2 ───────────────────────────────
+    function pickSlot(fecha, hora, cellEl) {
+      selectedFecha = fecha;
+      selectedHora  = hora;
+
+      // Highlight selected
+      document.querySelectorAll('.wg-slot.selected').forEach(el => el.classList.remove('selected'));
+      cellEl.classList.add('selected');
+
+      const d = new Date(fecha + 'T12:00:00');
+      const dLabel = d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
+      document.getElementById('summary-line').textContent =
+        `📅 ${dLabel.charAt(0).toUpperCase() + dLabel.slice(1)} · 🕐 ${hora}h (${duracionSlot} min)`;
+
+      showStep(2);
+    }
+
+    // ── Navegación rolling (±7 días desde el inicio visible) ───
+    document.getElementById('prev-week').addEventListener('click', () => {
+      cargarSemana(sumarDias(desdeActual, -7));
+    });
+    document.getElementById('next-week').addEventListener('click', () => {
+      cargarSemana(sumarDias(desdeActual, 7));
+    });
+
+    // ── Botón volver ────────────────────────────────────────────
+    document.getElementById('back-to-1').addEventListener('click', () => showStep(1));
+
+    // ── Envío del formulario ────────────────────────────────────
+    document.getElementById('cita-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!selectedFecha || !selectedHora) { showStep(1); return; }
+
+      const CAMPOS = {
+        nombre:     'Nombre completo',
+        telefono:   'Teléfono',
+        motivo:     'Motivo de consulta',
+        privacidad: 'Aceptación de la política de privacidad (RGPD)',
+      };
+      const errores = [];
+      Object.entries(CAMPOS).forEach(([id, label]) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const ok = el.type === 'checkbox' ? el.checked : el.value.trim() !== '';
+        el.classList.toggle('invalid', !ok);
+        if (!ok) errores.push(label);
+      });
+      const errDiv = document.getElementById('form-error-msg');
+      if (errores.length) {
+        errDiv.innerHTML = '⚠️ Por favor, completa los siguientes campos obligatorios:<ul style="margin:6px 0 0 16px;padding:0">' +
+          errores.map(e => `<li>${e}</li>`).join('') + '</ul>';
+        errDiv.style.display = 'block';
+        const primerInvalido = document.querySelector('#cita-form .invalid');
+        if (primerInvalido) primerInvalido.focus();
+        return;
+      }
+      errDiv.style.display = 'none';
+
+      const btn = document.getElementById('btn-submit');
+      btn.disabled = true;
+      btn.textContent = 'Reservando…';
+
+      try {
+        const res = await fetch(`${RELAY_URL}/api/reservar-slot`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            clinicaId:     CLINICA_ID,
+            fecha:         selectedFecha,
+            hora:          selectedHora,
+            nombre:        document.getElementById('nombre').value.trim(),
+            telefono:      document.getElementById('telefono').value.trim(),
+            email:         document.getElementById('email')?.value.trim() || null,
+            motivo:        document.getElementById('motivo').value,
+            observaciones: document.getElementById('observaciones').value.trim() || null
+          })
+        });
+        const data = await res.json();
+
+        if (!res.ok || !data.ok) {
+          if (res.status === 409) {
+            alert('Este horario acaba de ser reservado. Por favor elige otro.');
+            selectedFecha = null; selectedHora = null;
+            showStep(1);
+            cargarSemana(desdeActual);
+          } else {
+            throw new Error(data.error || `HTTP ${res.status}`);
+          }
+          btn.disabled = false;
+          btn.textContent = 'Confirmar cita';
+          return;
+        }
+
+        const d = new Date(selectedFecha + 'T12:00:00');
+        const dLabel = d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+        document.getElementById('success-detail').textContent =
+          `${dLabel.charAt(0).toUpperCase() + dLabel.slice(1)} a las ${selectedHora}h`;
+        document.getElementById('success-ref').textContent = data.reservaId || '–';
+        showStep('success');
+
+      } catch (err) {
+        console.error('[reservar-slot]', err);
+        btn.disabled = false;
+        btn.textContent = 'Confirmar cita';
+        alert('No se pudo confirmar la cita. Por favor llámenos al {{CLINICA_TELEFONO}}.');
+      }
+    });
+
+    // Quitar invalid al escribir / cambiar
+    document.querySelectorAll('#cita-form input, #cita-form select').forEach(el => {
+      el.addEventListener('input', () => el.classList.remove('invalid'));
+      el.addEventListener('change', () => el.classList.remove('invalid'));
+    });
+
+    // ── Inicializar ─────────────────────────────────────────────
+    showStep(1);
+    // Carga inicial: el servidor devuelve ventanaInicio por defecto (sin ?desde)
+    cargarSemana(new Date().toISOString().slice(0, 10));
+  </script>
+</body>
+</html>

@@ -23,6 +23,8 @@ function initDB() {
       id          TEXT PRIMARY KEY,
       nombre      TEXT NOT NULL,
       apiKey      TEXT UNIQUE NOT NULL,
+      webUrl      TEXT,
+      netlifyId   TEXT,
       createdAt   TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       activa      INTEGER NOT NULL DEFAULT 1
     );
