@@ -2,12 +2,12 @@
  * netlify-deploy.js — Despliega automáticamente la web de citas de un cliente en Netlify.
  *
  * Requiere NETLIFY_TOKEN en variables de entorno (Railway).
- * Usa la API de Netlify: crea un site + sube un zip con la plantilla personalizada.
+ * Usa fflate (puro JS, sin compilación nativa) para generar el ZIP.
  */
 
-const fs   = require('fs');
-const path = require('path');
-const JSZip = require('jszip');
+const fs    = require('fs');
+const path  = require('path');
+const { zipSync } = require('fflate');
 
 const TEMPLATE_DIR = path.join(__dirname, '..', 'web-template');
 const NETLIFY_API  = 'https://api.netlify.com/api/v1';
@@ -25,35 +25,36 @@ function toSlug(nombre) {
 
 function applyPlaceholders(content, vars) {
   return content
-    .replace(/\{\{CLINICA_ID\}\}/g,           vars.clinicaId)
-    .replace(/\{\{CLINICA_NOMBRE\}\}/g,        vars.nombre)
-    .replace(/\{\{CLINICA_NOMBRE_HEADER\}\}/g, vars.nombreHeader)
-    .replace(/\{\{CLINICA_TELEFONO\}\}/g,      vars.telefono)
-    .replace(/\{\{CLINICA_TELEFONO_RAW\}\}/g,  vars.telefonoRaw)
-    .replace(/\{\{CLINICA_DESCRIPCION\}\}/g,   vars.descripcion);
+    .replace(/\{\{CLINICA_ID\}\}/g,              vars.clinicaId)
+    .replace(/\{\{CLINICA_NOMBRE\}\}/g,           vars.nombre)
+    .replace(/\{\{CLINICA_NOMBRE_HEADER\}\}/g,    vars.nombreHeader)
+    .replace(/\{\{CLINICA_CIUDAD\}\}/g,           vars.ciudad)
+    .replace(/\{\{CLINICA_DIRECCION\}\}/g,        vars.direccion)
+    .replace(/\{\{CLINICA_TELEFONO\}\}/g,         vars.telefono)
+    .replace(/\{\{CLINICA_TELEFONO_RAW\}\}/g,     vars.telefonoRaw)
+    .replace(/\{\{CLINICA_DESCRIPCION\}\}/g,      vars.descripcion);
 }
 
-async function buildZip(vars) {
-  const zip = new JSZip();
+function buildZip(vars) {
+  const files = {};
 
   function addDir(dir, prefix) {
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const e of entries) {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const fullPath = path.join(dir, e.name);
       const zipPath  = prefix ? `${prefix}/${e.name}` : e.name;
       if (e.isDirectory()) {
         addDir(fullPath, zipPath);
       } else if (e.name === 'cita.html') {
         const raw = fs.readFileSync(fullPath, 'utf-8');
-        zip.file(zipPath, applyPlaceholders(raw, vars));
+        files[zipPath] = Buffer.from(applyPlaceholders(raw, vars));
       } else {
-        zip.file(zipPath, fs.readFileSync(fullPath));
+        files[zipPath] = fs.readFileSync(fullPath);
       }
     }
   }
 
   addDir(TEMPLATE_DIR, '');
-  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+  return Buffer.from(zipSync(files));
 }
 
 async function netlifyPost(path_, token, body, contentType = 'application/json') {
@@ -69,7 +70,6 @@ async function netlifyPost(path_, token, body, contentType = 'application/json')
 }
 
 async function createNetlifySite(token, slug) {
-  // Intenta con el slug base; si está ocupado añade sufijo aleatorio
   for (let i = 0; i < 4; i++) {
     const name = i === 0 ? slug : `${slug}-${Math.random().toString(36).slice(2, 5)}`;
     const { ok, data } = await netlifyPost('/sites', token, { name });
@@ -86,19 +86,20 @@ async function createNetlifySite(token, slug) {
  * deployClientSite — punto de entrada principal.
  *
  * @param {object} opts
- * @param {string} opts.clinicaId    — ID del relay
- * @param {string} opts.nombre       — nombre completo de la clínica
- * @param {string} [opts.telefono]   — teléfono (opcional)
+ * @param {string} opts.clinicaId   — ID del relay
+ * @param {string} opts.nombre      — nombre completo de la clínica
+ * @param {string} [opts.ciudad]    — ciudad (ej: "Sevilla")
+ * @param {string} [opts.direccion] — dirección completa
+ * @param {string} [opts.telefono]  — teléfono
  * @returns {Promise<{ webUrl: string, netlifyId: string, siteName: string }>}
  */
-async function deployClientSite({ clinicaId, nombre, telefono = '' }) {
+async function deployClientSite({ clinicaId, nombre, ciudad = '', direccion = '', telefono = '' }) {
   const token = process.env.NETLIFY_TOKEN;
   if (!token) throw new Error('NETLIFY_TOKEN no configurado en Railway');
 
   const slug    = toSlug(nombre);
   const teleRaw = telefono.replace(/\D/g, '');
 
-  // Nombre en header: primera línea / segunda línea si tiene dos palabras significativas
   const partes = nombre.trim().split(/\s+/);
   const nombreHeader = partes.length >= 3
     ? `${partes.slice(0, -1).join(' ')}<br><strong>${partes[partes.length - 1]}</strong>`
@@ -108,15 +109,17 @@ async function deployClientSite({ clinicaId, nombre, telefono = '' }) {
     clinicaId,
     nombre,
     nombreHeader,
-    telefono:    telefono || 'Sin teléfono',
-    telefonoRaw: teleRaw  || '000000000',
-    descripcion: `Podología en ${nombre}`,
+    ciudad:      ciudad  || 'su ciudad',
+    direccion:   direccion || '',
+    telefono:    telefono  || 'Sin teléfono',
+    telefonoRaw: teleRaw   || '000000000',
+    descripcion: `Podología en ${ciudad || nombre}`,
   };
 
   const { siteId, siteName } = await createNetlifySite(token, slug);
   console.log(`[netlify] Site creado: ${siteName} (${siteId})`);
 
-  const zipBuffer = await buildZip(vars);
+  const zipBuffer = buildZip(vars);
   console.log(`[netlify] ZIP generado: ${zipBuffer.length} bytes`);
 
   const { ok, data } = await netlifyPost(

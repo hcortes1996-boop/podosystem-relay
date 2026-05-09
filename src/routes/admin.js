@@ -160,7 +160,7 @@ router.get('/api/clinicas', authAdmin, (req, res) => {
 
 // Flujo completo: crear licencia + clínica relay + despliegue Netlify + borrador email
 router.post('/api/nuevo-cliente', authAdmin, async (req, res) => {
-  const { clienteNombre, clienteEmail, clinicaNombre, clinicaTelefono = '' } = req.body;
+  const { clienteNombre, clienteEmail, clinicaNombre, clinicaTelefono = '', clinicaCiudad = '', clinicaDireccion = '' } = req.body;
   if (!clienteNombre?.trim() || !clienteEmail?.trim() || !clinicaNombre?.trim()) {
     return res.status(400).json({ ok: false, error: 'clienteNombre, clienteEmail y clinicaNombre son obligatorios' });
   }
@@ -191,8 +191,10 @@ router.post('/api/nuevo-cliente', authAdmin, async (req, res) => {
     try {
       const result = await deployClientSite({
         clinicaId,
-        nombre:    clinicaNombre.trim(),
-        telefono:  clinicaTelefono.trim(),
+        nombre:     clinicaNombre.trim(),
+        ciudad:     clinicaCiudad.trim(),
+        direccion:  clinicaDireccion.trim(),
+        telefono:   clinicaTelefono.trim(),
       });
       webUrl    = result.webUrl;
       netlifyId = result.netlifyId;

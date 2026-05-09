@@ -143,19 +143,34 @@
           <h3 class="font-semibold text-gray-700 mb-4">Datos del cliente</h3>
           <form id="nuevo-cliente-form" class="space-y-4">
             <div>
-              <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Nombre completo</label>
+              <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Nombre completo del cliente</label>
               <input type="text" id="nc-nombre" placeholder="María García López" class="w-full px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition">
             </div>
             <div>
-              <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Email</label>
+              <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Email del cliente</label>
               <input type="email" id="nc-email" placeholder="cliente@email.com" class="w-full px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition">
             </div>
+            <hr class="border-gray-100">
             <div>
               <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Nombre de la clínica</label>
-              <input type="text" id="nc-clinica" placeholder="Clínica del Pie Ejemplo" class="w-full px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition">
+              <input type="text" id="nc-clinica" placeholder="Clínica Podológica Ejemplo" class="w-full px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Ciudad</label>
+                <input type="text" id="nc-ciudad" placeholder="Sevilla" class="w-full px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Teléfono</label>
+                <input type="tel" id="nc-telefono" placeholder="955 000 000" class="w-full px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition">
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Dirección</label>
+              <input type="text" id="nc-direccion" placeholder="Calle Ejemplo 1, 41000" class="w-full px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition">
             </div>
             <button type="submit" id="nc-submit" class="w-full py-3 bg-[#1E3A5F] hover:bg-[#163050] text-white rounded-lg font-semibold text-sm transition">
-              Generar accesos y borrador de email
+              Crear cliente y desplegar web de citas
             </button>
           </form>
         </div>
@@ -176,6 +191,14 @@
             <div class="bg-gray-50 rounded-lg px-4 py-3">
               <p class="text-xs text-gray-500 mb-1">🔐 API Key relay</p>
               <p id="nc-r-apikey" class="font-mono text-gray-600 text-xs break-all"></p>
+            </div>
+            <div id="nc-r-web-wrap" class="bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+              <p class="text-xs text-green-700 font-semibold mb-1">🌍 Web de citas desplegada</p>
+              <a id="nc-r-weburl" href="#" target="_blank" class="text-green-800 text-sm font-mono underline break-all"></a>
+            </div>
+            <div id="nc-r-netlify-error" class="hidden bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+              <p class="text-xs text-amber-700 font-semibold mb-1">⚠️ Netlify no disponible</p>
+              <p id="nc-r-netlify-error-msg" class="text-xs text-amber-800"></p>
             </div>
           </div>
           <div>
@@ -438,21 +461,40 @@ document.getElementById('nuevo-cliente-form').addEventListener('submit', async (
   btn.textContent = 'Generando…';
 
   const res = await api('POST', '/admin/api/nuevo-cliente', {
-    clienteNombre: document.getElementById('nc-nombre').value,
-    clienteEmail:  document.getElementById('nc-email').value,
-    clinicaNombre: document.getElementById('nc-clinica').value,
+    clienteNombre:   document.getElementById('nc-nombre').value,
+    clienteEmail:    document.getElementById('nc-email').value,
+    clinicaNombre:   document.getElementById('nc-clinica').value,
+    clinicaCiudad:   document.getElementById('nc-ciudad').value,
+    clinicaTelefono: document.getElementById('nc-telefono').value,
+    clinicaDireccion: document.getElementById('nc-direccion').value,
   });
 
   btn.disabled = false;
-  btn.textContent = 'Generar accesos y borrador de email';
+  btn.textContent = 'Crear cliente y desplegar web de citas';
 
   if (!res.ok) { alert('Error: ' + res.error); return; }
 
-  document.getElementById('nc-r-key').textContent    = res.licenseKey;
-  document.getElementById('nc-r-clinica').textContent = res.clinicaId;
-  document.getElementById('nc-r-apikey').textContent  = res.apiKey;
-  document.getElementById('nc-r-email').textContent   = res.emailDraft.cuerpo;
+  document.getElementById('nc-r-key').textContent     = res.licenseKey;
+  document.getElementById('nc-r-clinica').textContent  = res.clinicaId;
+  document.getElementById('nc-r-apikey').textContent   = res.apiKey;
+  document.getElementById('nc-r-email').textContent    = res.emailDraft.cuerpo;
   emailDraftText = res.emailDraft.cuerpo;
+
+  const webWrap = document.getElementById('nc-r-web-wrap');
+  const netErrWrap = document.getElementById('nc-r-netlify-error');
+  if (res.webUrl) {
+    const a = document.getElementById('nc-r-weburl');
+    a.href = res.webUrl;
+    a.textContent = res.webUrl;
+    webWrap.classList.remove('hidden');
+    netErrWrap.classList.add('hidden');
+  } else {
+    webWrap.classList.add('hidden');
+    if (res.netlifyError) {
+      document.getElementById('nc-r-netlify-error-msg').textContent = res.netlifyError;
+      netErrWrap.classList.remove('hidden');
+    }
+  }
 
   document.getElementById('nc-resultado').classList.remove('hidden');
 });

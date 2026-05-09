@@ -868,8 +868,8 @@
         </h1>
 
         <p class="hero-cita__sub">
-          Solicite su visita en nuestra clínica de podología en Dos Hermanas (Sevilla).
-          Más de 25 años cuidando la salud de sus pies.
+          Solicite su visita en nuestra clínica de podología en {{CLINICA_CIUDAD}}.
+          Cuidando la salud de sus pies con atención personalizada.
         </p>
 
         <div class="hero-cita__trust">
@@ -1036,7 +1036,7 @@
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
           </div>
           <h3>Ven a la clínica</h3>
-          <p>Sin esperas ni llamadas. Tu cita está confirmada. Te atendemos de forma personalizada en Dos Hermanas.</p>
+          <p>Sin esperas ni llamadas. Tu cita está confirmada. Te atendemos de forma personalizada en {{CLINICA_CIUDAD}}.</p>
         </div>
       </div>
     </div>
@@ -1080,7 +1080,7 @@
     <div class="container">
       <div class="section-header fade-up">
         <span class="section-label">Nuestra clínica</span>
-        <h2 id="why-title">¿Por qué elegir la Clínica del Pie?</h2>
+        <h2 id="why-title">¿Por qué elegir {{CLINICA_NOMBRE}}?</h2>
       </div>
 
       <div class="why-grid">
@@ -1104,8 +1104,8 @@
           <div class="why-card__icon">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
           </div>
-          <h3>Más de 25 años de experiencia</h3>
-          <p>Desde el año 2000 cuidando la salud podológica de los vecinos de Dos Hermanas y comarca con resultados probados.</p>
+          <h3>Experiencia y dedicación</h3>
+          <p>Cuidando la salud podológica de los vecinos de {{CLINICA_CIUDAD}} y comarca con resultados probados.</p>
         </div>
       </div>
     </div>
@@ -1143,13 +1143,13 @@
         </div>
 
         <div class="contacto-block fade-up" style="transition-delay:.3s">
-          <a href="https://www.instagram.com/clinicadelpiefranciscoromán" target="_blank" rel="noopener noreferrer">
-            <div class="contacto-block__icon contacto-block__icon--insta">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1112.63 8 4 4 0 0116 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+          <div>
+            <div class="contacto-block__icon" style="background:rgba(255,255,255,.12)">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
             </div>
-            <p class="contacto-block__label">Instagram</p>
-            <p class="contacto-block__value">@clinicadelpie</p>
-          </a>
+            <p class="contacto-block__label">Dirección</p>
+            <p class="contacto-block__value">{{CLINICA_CIUDAD}}</p>
+          </div>
         </div>
       </div>
     </div>
@@ -1165,10 +1165,10 @@
           <img src="images/logo.png" alt="Logo {{CLINICA_NOMBRE}}" width="60" height="60">
         </a>
         <div>
-          <strong class="footer-clinic-name">Clínica del Pie<br>Francisco Román</strong>
+          <strong class="footer-clinic-name">{{CLINICA_NOMBRE}}</strong>
           <address class="footer-address">
-            Avda de España 129 Local<br>
-            41702 Dos Hermanas (Sevilla)<br>
+            {{CLINICA_DIRECCION}}<br>
+            {{CLINICA_CIUDAD}}<br>
             <a href="tel:{{CLINICA_TELEFONO_RAW}}">{{CLINICA_TELEFONO}}</a>
           </address>
         </div>
