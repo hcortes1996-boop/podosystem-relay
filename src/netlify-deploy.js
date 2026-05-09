@@ -12,6 +12,27 @@ const { zipSync } = require('fflate');
 const TEMPLATE_DIR = path.join(__dirname, '..', 'web-template');
 const NETLIFY_API  = 'https://api.netlify.com/api/v1';
 
+/**
+ * Deriva una paleta de colores profesional y única a partir del nombre de la clínica.
+ * Usa un hash simple para elegir un matiz (hue) en rangos médicos/profesionales.
+ * Resultado: tres colores CSS HSL para el fondo hero.
+ */
+function clinicaColors(nombre) {
+  let hash = 0;
+  for (let i = 0; i < nombre.length; i++) {
+    hash = ((hash << 5) - hash + nombre.charCodeAt(i)) | 0;
+  }
+  // Mantener hue en rangos profesionales: azul-verde-violeta (170–260)
+  const hue = 170 + (Math.abs(hash) % 90);
+  const hue2 = (hue + 20) % 360;
+  const hueAccent = (hue + 140) % 360;
+  return {
+    color1:  `hsl(${hue},  45%, 12%)`,      // oscuro base
+    color2:  `hsl(${hue2}, 50%, 22%)`,      // oscuro medio
+    accent:  `hsl(${hueAccent}, 35%, 18%)`, // acento sutil
+  };
+}
+
 function toSlug(nombre) {
   return nombre
     .toLowerCase()
@@ -28,6 +49,9 @@ function applyPlaceholders(content, vars) {
     .replace(/\{\{CLINICA_ID\}\}/g,              vars.clinicaId)
     .replace(/\{\{CLINICA_NOMBRE\}\}/g,           vars.nombre)
     .replace(/\{\{CLINICA_NOMBRE_HEADER\}\}/g,    vars.nombreHeader)
+    .replace(/\{\{CLINICA_COLOR_1\}\}/g,          vars.color1)
+    .replace(/\{\{CLINICA_COLOR_2\}\}/g,          vars.color2)
+    .replace(/\{\{CLINICA_COLOR_ACCENT\}\}/g,     vars.colorAccent)
     .replace(/\{\{CLINICA_CIUDAD\}\}/g,           vars.ciudad)
     .replace(/\{\{CLINICA_DIRECCION\}\}/g,        vars.direccion)
     .replace(/\{\{CLINICA_TELEFONO\}\}/g,         vars.telefono)
@@ -105,15 +129,19 @@ async function deployClientSite({ clinicaId, nombre, ciudad = '', direccion = ''
     ? `${partes.slice(0, -1).join(' ')}<br><strong>${partes[partes.length - 1]}</strong>`
     : `<strong>${nombre}</strong>`;
 
+  const colors = clinicaColors(nombre);
   const vars = {
     clinicaId,
     nombre,
     nombreHeader,
-    ciudad:      ciudad  || 'su ciudad',
-    direccion:   direccion || '',
-    telefono:    telefono  || 'Sin teléfono',
-    telefonoRaw: teleRaw   || '000000000',
-    descripcion: `Podología en ${ciudad || nombre}`,
+    ciudad:       ciudad    || 'su ciudad',
+    direccion:    direccion || '',
+    telefono:     telefono  || 'Sin teléfono',
+    telefonoRaw:  teleRaw   || '000000000',
+    descripcion:  `Podología en ${ciudad || nombre}`,
+    color1:       colors.color1,
+    color2:       colors.color2,
+    colorAccent:  colors.accent,
   };
 
   const { siteId, siteName } = await createNetlifySite(token, slug);
