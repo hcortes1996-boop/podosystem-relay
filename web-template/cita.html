@@ -732,30 +732,35 @@
       background: var(--border);
     }
 
-    /* ── PODOSYSTEM BADGE ──────────────────────────────────────────── */
+    /* ── PODOSYSTEM BADGE (esquina inferior derecha, fijo) ─────────── */
     .podosystem-banner {
-      background: linear-gradient(90deg, #0d2d6b 0%, #1a4f8a 50%, #0d2d6b 100%);
-      padding: 16px 0;
-      text-align: center;
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 9000;
+      pointer-events: auto;
     }
     .podosystem-banner__inner {
       display: flex;
       align-items: center;
-      justify-content: center;
-      gap: 12px;
-      color: rgba(255,255,255,.7);
-      font-size: .82rem;
+      gap: 8px;
+      background: rgba(13, 45, 107, 0.92);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 20px;
+      padding: 6px 12px 6px 8px;
+      color: rgba(255,255,255,.65);
+      font-size: .72rem;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      transition: opacity 0.2s;
     }
+    .podosystem-banner__inner:hover { opacity: 0.9; }
     .podosystem-banner__inner strong {
       color: #fff;
       font-weight: 700;
     }
     .ps-logo-mini {
-      display: flex; align-items: center; gap: 6px;
-      background: rgba(255,255,255,0.1);
-      border-radius: 6px;
-      padding: 4px 10px;
-      border: 1px solid rgba(255,255,255,0.2);
+      display: flex; align-items: center; gap: 5px;
     }
     .ps-logo-mini span {
       font-weight: 700;
