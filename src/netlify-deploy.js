@@ -78,6 +78,8 @@ function buildZip(vars) {
   }
 
   addDir(TEMPLATE_DIR, '');
+  // Redirect raíz → /cita.html para evitar 404 al visitar el dominio sin ruta
+  files['_redirects'] = Buffer.from('/  /cita.html  301\n');
   return Buffer.from(zipSync(files));
 }
 

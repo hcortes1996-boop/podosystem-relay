@@ -127,7 +127,7 @@ router.post('/api/licencias', authAdmin, (req, res) => {
   const licenseKey = genLicenseKey();
   req.db.prepare(`
     INSERT INTO licencias (id, licenseKey, clienteNombre, clienteEmail, notas, estado)
-    VALUES (?, ?, ?, ?, ?, 'trial')
+    VALUES (?, ?, ?, ?, ?, 'active')
   `).run(id, licenseKey, clienteNombre.trim(), clienteEmail.trim(), notas || '');
 
   res.status(201).json({ ok: true, id, licenseKey });
@@ -170,7 +170,7 @@ router.post('/api/nuevo-cliente', authAdmin, async (req, res) => {
   const licenseKey = genLicenseKey();
   req.db.prepare(`
     INSERT INTO licencias (id, licenseKey, clienteNombre, clienteEmail, estado)
-    VALUES (?, ?, ?, ?, 'trial')
+    VALUES (?, ?, ?, ?, 'active')
   `).run(licId, licenseKey, clienteNombre.trim(), clienteEmail.trim());
 
   // 2. Crear clínica relay
