@@ -110,6 +110,13 @@ function initDB() {
 
     CREATE INDEX IF NOT EXISTS idx_licencias_estado
       ON licencias(estado, createdAt DESC);
+
+    -- Snapshot de agenda completa para la APK en modo remoto
+    CREATE TABLE IF NOT EXISTS agenda_snapshot (
+      clinicaId TEXT PRIMARY KEY REFERENCES clinicas(id),
+      citas     TEXT NOT NULL DEFAULT '[]',
+      updatedAt TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
   `);
 
   return db;

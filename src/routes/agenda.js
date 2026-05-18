@@ -2,6 +2,8 @@
  * agenda.js — Sincronización de agenda y cálculo de huecos libres
  *
  *   PUT /api/sync-agenda          (X-Api-Key) — PodoSystem sincroniza horario + citas
+ *   PUT /api/agenda-snapshot      (X-Api-Key) — PodoSystem pushea snapshot completo (APK remoto)
+ *   GET /api/agenda-snapshot      (X-Api-Key) — APK lee el snapshot de citas
  *   GET /api/dias-disponibles/:id (público)   — días con huecos en el rango publicado
  *   GET /api/slots/:id/:fecha     (público)   — huecos libres de un día concreto
  */
@@ -52,6 +54,25 @@ router.put('/sync-agenda', auth, (req, res) => {
   insertAll(citasOcupadas || []);
 
   res.json({ ok: true, citasSincronizadas: (citasOcupadas || []).length });
+});
+
+/* ── Snapshot completo de agenda (para APK en modo remoto) ─────── */
+
+router.put('/agenda-snapshot', auth, (req, res) => {
+  const { citas } = req.body;
+  if (!Array.isArray(citas)) return res.status(400).json({ ok: false, error: 'citas debe ser array' });
+  req.db.prepare(`
+    INSERT INTO agenda_snapshot (clinicaId, citas, updatedAt)
+    VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    ON CONFLICT(clinicaId) DO UPDATE SET citas=excluded.citas, updatedAt=excluded.updatedAt
+  `).run(req.clinicaId, JSON.stringify(citas));
+  res.json({ ok: true, count: citas.length });
+});
+
+router.get('/agenda-snapshot', auth, (req, res) => {
+  const row = req.db.prepare('SELECT citas, updatedAt FROM agenda_snapshot WHERE clinicaId = ?').get(req.clinicaId);
+  if (!row) return res.json({ ok: true, citas: [], updatedAt: null });
+  res.json({ ok: true, citas: JSON.parse(row.citas || '[]'), updatedAt: row.updatedAt });
 });
 
 /* ── Helpers de cálculo ───────────────────────────────────────── */
