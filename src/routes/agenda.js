@@ -1,11 +1,16 @@
 /**
  * agenda.js — Sincronización de agenda y cálculo de huecos libres
  *
- *   PUT /api/sync-agenda          (X-Api-Key) — PodoSystem sincroniza horario + citas
- *   PUT /api/agenda-snapshot      (X-Api-Key) — PodoSystem pushea snapshot completo (APK remoto)
- *   GET /api/agenda-snapshot      (X-Api-Key) — APK lee el snapshot de citas
- *   GET /api/dias-disponibles/:id (público)   — días con huecos en el rango publicado
- *   GET /api/slots/:id/:fecha     (público)   — huecos libres de un día concreto
+ *   PUT    /api/sync-agenda                 (X-Api-Key) — PodoSystem sincroniza horario + citas
+ *   PUT    /api/agenda-snapshot             (X-Api-Key) — PodoSystem pushea snapshot completo
+ *   GET    /api/agenda-snapshot             (X-Api-Key) — APK lee el snapshot de citas
+ *   POST   /api/citas-remote               (X-Api-Key) — APK crea cita en modo remoto
+ *   PUT    /api/citas-remote/:citaId        (X-Api-Key) — APK edita cita en modo remoto
+ *   DELETE /api/citas-remote/:citaId        (X-Api-Key) — APK cancela cita en modo remoto
+ *   GET    /api/citas-remote/pendientes     (X-Api-Key) — PC descarga ops pendientes
+ *   POST   /api/citas-remote/sincronizadas  (X-Api-Key) — PC marca ops como sincronizadas
+ *   GET    /api/dias-disponibles/:id        (público)   — días con huecos en el rango publicado
+ *   GET    /api/slots/:id/:fecha            (público)   — huecos libres de un día concreto
  */
 
 const router = require('express').Router();
@@ -73,6 +78,77 @@ router.get('/agenda-snapshot', auth, (req, res) => {
   const row = req.db.prepare('SELECT citas, updatedAt FROM agenda_snapshot WHERE clinicaId = ?').get(req.clinicaId);
   if (!row) return res.json({ ok: true, citas: [], updatedAt: null });
   res.json({ ok: true, citas: JSON.parse(row.citas || '[]'), updatedAt: row.updatedAt });
+});
+
+/* ── CRUD remoto desde APK en modo remoto ────────────────────── */
+
+const { genId } = require('../db');
+
+// Actualiza el snapshot en memoria al aplicar una operación remota
+function _applyToSnapshot(db, clinicaId, op, data) {
+  const row = db.prepare('SELECT citas FROM agenda_snapshot WHERE clinicaId = ?').get(clinicaId);
+  let citas = row ? JSON.parse(row.citas || '[]') : [];
+  if (op === 'add') {
+    citas = citas.filter(c => c.id !== data.id);
+    citas.push(data);
+  } else if (op === 'edit') {
+    citas = citas.map(c => c.id === data.id ? { ...c, ...data } : c);
+  } else if (op === 'delete') {
+    citas = citas.filter(c => c.id !== data.id);
+  }
+  db.prepare(`
+    INSERT INTO agenda_snapshot (clinicaId, citas, updatedAt)
+    VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    ON CONFLICT(clinicaId) DO UPDATE SET citas=excluded.citas, updatedAt=excluded.updatedAt
+  `).run(clinicaId, JSON.stringify(citas));
+}
+
+router.post('/citas-remote', auth, (req, res) => {
+  const cita = req.body;
+  if (!cita.id || !cita.fecha || !cita.hora) return res.status(400).json({ ok: false, error: 'id, fecha, hora requeridos' });
+  const opId = genId(12);
+  req.db.prepare('INSERT INTO citas_remote_ops (id, clinicaId, op, citaId, citaData) VALUES (?,?,?,?,?)')
+    .run(opId, req.clinicaId, 'add', cita.id, JSON.stringify(cita));
+  _applyToSnapshot(req.db, req.clinicaId, 'add', cita);
+  res.json({ ok: true, opId });
+});
+
+router.put('/citas-remote/:citaId', auth, (req, res) => {
+  const { citaId } = req.params;
+  const cambios = req.body;
+  const opId = genId(12);
+  req.db.prepare('INSERT INTO citas_remote_ops (id, clinicaId, op, citaId, citaData) VALUES (?,?,?,?,?)')
+    .run(opId, req.clinicaId, 'edit', citaId, JSON.stringify({ id: citaId, ...cambios }));
+  _applyToSnapshot(req.db, req.clinicaId, 'edit', { id: citaId, ...cambios });
+  res.json({ ok: true, opId });
+});
+
+router.delete('/citas-remote/:citaId', auth, (req, res) => {
+  const { citaId } = req.params;
+  const opId = genId(12);
+  req.db.prepare('INSERT INTO citas_remote_ops (id, clinicaId, op, citaId, citaData) VALUES (?,?,?,?,?)')
+    .run(opId, req.clinicaId, 'delete', citaId, '{}');
+  _applyToSnapshot(req.db, req.clinicaId, 'delete', { id: citaId });
+  res.json({ ok: true, opId });
+});
+
+router.get('/citas-remote/pendientes', auth, (req, res) => {
+  const ops = req.db.prepare(`
+    SELECT id, op, citaId, citaData, createdAt
+    FROM citas_remote_ops
+    WHERE clinicaId = ? AND syncedAt IS NULL
+    ORDER BY createdAt ASC
+  `).all(req.clinicaId);
+  res.json({ ok: true, ops: ops.map(o => ({ ...o, citaData: JSON.parse(o.citaData) })) });
+});
+
+router.post('/citas-remote/sincronizadas', auth, (req, res) => {
+  const { opIds } = req.body;
+  if (!Array.isArray(opIds) || !opIds.length) return res.status(400).json({ ok: false, error: 'opIds requerido' });
+  const now = new Date().toISOString();
+  const stmt = req.db.prepare('UPDATE citas_remote_ops SET syncedAt=? WHERE id=? AND clinicaId=?');
+  req.db.transaction(() => { opIds.forEach(id => stmt.run(now, id, req.clinicaId)); })();
+  res.json({ ok: true, count: opIds.length });
 });
 
 /* ── Helpers de cálculo ───────────────────────────────────────── */

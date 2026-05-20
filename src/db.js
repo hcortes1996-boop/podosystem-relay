@@ -117,6 +117,19 @@ function initDB() {
       citas     TEXT NOT NULL DEFAULT '[]',
       updatedAt TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
+
+    -- Operaciones de agenda creadas desde el móvil en modo remoto
+    CREATE TABLE IF NOT EXISTS citas_remote_ops (
+      id        TEXT PRIMARY KEY,
+      clinicaId TEXT NOT NULL REFERENCES clinicas(id),
+      op        TEXT NOT NULL,   -- 'add' | 'edit' | 'delete'
+      citaId    TEXT NOT NULL,
+      citaData  TEXT NOT NULL DEFAULT '{}',
+      createdAt TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      syncedAt  TEXT            -- NULL = pendiente de sincronizar con el PC
+    );
+    CREATE INDEX IF NOT EXISTS idx_citas_remote_ops_pendientes
+      ON citas_remote_ops(clinicaId, syncedAt, createdAt);
   `);
 
   return db;
