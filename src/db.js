@@ -113,9 +113,10 @@ function initDB() {
 
     -- Snapshot de agenda completa para la APK en modo remoto
     CREATE TABLE IF NOT EXISTS agenda_snapshot (
-      clinicaId TEXT PRIMARY KEY REFERENCES clinicas(id),
-      citas     TEXT NOT NULL DEFAULT '[]',
-      updatedAt TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      clinicaId      TEXT PRIMARY KEY REFERENCES clinicas(id),
+      citas          TEXT NOT NULL DEFAULT '[]',
+      horarioClinica TEXT,   -- { inicio, fin, duracion } del horario real del PC
+      updatedAt      TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     );
 
     -- Operaciones de agenda creadas desde el móvil en modo remoto
@@ -131,6 +132,9 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_citas_remote_ops_pendientes
       ON citas_remote_ops(clinicaId, syncedAt, createdAt);
   `);
+
+  // Migraciones incrementales (idempotentes: el catch ignora "column already exists")
+  try { db.exec('ALTER TABLE agenda_snapshot ADD COLUMN horarioClinica TEXT'); } catch (_) {}
 
   return db;
 }

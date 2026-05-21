@@ -64,27 +64,37 @@ router.put('/sync-agenda', auth, (req, res) => {
 /* ── Snapshot completo de agenda (para APK en modo remoto) ─────── */
 
 router.put('/agenda-snapshot', auth, (req, res) => {
-  const { citas } = req.body;
+  const { citas, horarioClinica } = req.body;
   if (!Array.isArray(citas)) return res.status(400).json({ ok: false, error: 'citas debe ser array' });
   req.db.prepare(`
-    INSERT INTO agenda_snapshot (clinicaId, citas, updatedAt)
-    VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
-    ON CONFLICT(clinicaId) DO UPDATE SET citas=excluded.citas, updatedAt=excluded.updatedAt
-  `).run(req.clinicaId, JSON.stringify(citas));
+    INSERT INTO agenda_snapshot (clinicaId, citas, horarioClinica, updatedAt)
+    VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    ON CONFLICT(clinicaId) DO UPDATE SET
+      citas=excluded.citas,
+      horarioClinica=excluded.horarioClinica,
+      updatedAt=excluded.updatedAt
+  `).run(req.clinicaId, JSON.stringify(citas), horarioClinica ? JSON.stringify(horarioClinica) : null);
   res.json({ ok: true, count: citas.length });
 });
 
 router.get('/agenda-snapshot', auth, (req, res) => {
-  const row = req.db.prepare('SELECT citas, updatedAt FROM agenda_snapshot WHERE clinicaId = ?').get(req.clinicaId);
+  const row = req.db.prepare('SELECT citas, horarioClinica, updatedAt FROM agenda_snapshot WHERE clinicaId = ?').get(req.clinicaId);
   if (!row) return res.json({ ok: true, citas: [], updatedAt: null });
-  res.json({ ok: true, citas: JSON.parse(row.citas || '[]'), updatedAt: row.updatedAt });
+  res.json({
+    ok: true,
+    citas: JSON.parse(row.citas || '[]'),
+    horarioClinica: row.horarioClinica ? JSON.parse(row.horarioClinica) : null,
+    updatedAt: row.updatedAt
+  });
 });
 
 /* ── CRUD remoto desde APK en modo remoto ────────────────────── */
 
 const { genId } = require('../db');
 
-// Actualiza el snapshot en memoria al aplicar una operación remota
+// Actualiza el snapshot en memoria al aplicar una operación remota.
+// IMPORTANTE: llamar DESPUÉS de _actualizarCitasOcupadas para delete/edit,
+// ya que ésta lee el snapshot original para obtener el slot previo.
 function _applyToSnapshot(db, clinicaId, op, data) {
   const row = db.prepare('SELECT citas FROM agenda_snapshot WHERE clinicaId = ?').get(clinicaId);
   let citas = row ? JSON.parse(row.citas || '[]') : [];
@@ -96,11 +106,65 @@ function _applyToSnapshot(db, clinicaId, op, data) {
   } else if (op === 'delete') {
     citas = citas.filter(c => c.id !== data.id);
   }
+  // Solo actualiza citas y updatedAt — horarioClinica se preserva automáticamente
+  // porque ON CONFLICT no la menciona y el INSERT no la incluye.
   db.prepare(`
     INSERT INTO agenda_snapshot (clinicaId, citas, updatedAt)
     VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     ON CONFLICT(clinicaId) DO UPDATE SET citas=excluded.citas, updatedAt=excluded.updatedAt
   `).run(clinicaId, JSON.stringify(citas));
+}
+
+// Mantiene citas_ocupadas sincronizada en tiempo real cuando la APK opera en modo remoto.
+// Cierra la ventana de colisión entre citas remotas y reservas web de pacientes.
+// Para delete/edit debe llamarse ANTES de _applyToSnapshot (necesita leer el snapshot original).
+function _actualizarCitasOcupadas(db, clinicaId, op, citaData) {
+  const reprotegerSlot = (fecha, hora) => {
+    // Restaura el bloqueo si había una reserva web pendiente en ese mismo slot
+    db.prepare(`
+      INSERT OR IGNORE INTO citas_ocupadas (clinicaId, fecha, hora, duracion)
+      SELECT clinicaId, fecha, hora, duracion FROM reservas
+      WHERE clinicaId = ? AND fecha = ? AND hora = ? AND estado = 'pendiente_pc'
+    `).run(clinicaId, fecha, hora);
+  };
+
+  if (op === 'add') {
+    if (!citaData.fecha || !citaData.hora) return;
+    db.prepare('INSERT OR IGNORE INTO citas_ocupadas (clinicaId, fecha, hora, duracion) VALUES (?,?,?,?)')
+      .run(clinicaId, citaData.fecha, citaData.hora, citaData.duracion || 30);
+    return;
+  }
+
+  // Para edit y delete, leer el slot original del snapshot antes de modificarlo
+  const snapshotRow = db.prepare('SELECT citas FROM agenda_snapshot WHERE clinicaId = ?').get(clinicaId);
+  const citasActuales = snapshotRow ? JSON.parse(snapshotRow.citas || '[]') : [];
+  const original = citasActuales.find(c => c.id === citaData.id);
+
+  if (op === 'delete') {
+    if (!original?.fecha || !original?.hora) return;
+    db.prepare('DELETE FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ? AND hora = ?')
+      .run(clinicaId, original.fecha, original.hora);
+    reprotegerSlot(original.fecha, original.hora);
+    return;
+  }
+
+  if (op === 'edit') {
+    const fechaNueva = citaData.fecha || original?.fecha;
+    const horaNueva  = citaData.hora  || original?.hora;
+    const durNueva   = citaData.duracion || original?.duracion || 30;
+    const mismoSlot  = fechaNueva === original?.fecha && horaNueva === original?.hora;
+
+    if (!mismoSlot && original?.fecha && original?.hora) {
+      // Liberar slot anterior
+      db.prepare('DELETE FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ? AND hora = ?')
+        .run(clinicaId, original.fecha, original.hora);
+      reprotegerSlot(original.fecha, original.hora);
+    }
+    if (fechaNueva && horaNueva) {
+      db.prepare('INSERT OR IGNORE INTO citas_ocupadas (clinicaId, fecha, hora, duracion) VALUES (?,?,?,?)')
+        .run(clinicaId, fechaNueva, horaNueva, durNueva);
+    }
+  }
 }
 
 router.post('/citas-remote', auth, (req, res) => {
@@ -109,6 +173,7 @@ router.post('/citas-remote', auth, (req, res) => {
   const opId = genId(12);
   req.db.prepare('INSERT INTO citas_remote_ops (id, clinicaId, op, citaId, citaData) VALUES (?,?,?,?,?)')
     .run(opId, req.clinicaId, 'add', cita.id, JSON.stringify(cita));
+  _actualizarCitasOcupadas(req.db, req.clinicaId, 'add', cita);
   _applyToSnapshot(req.db, req.clinicaId, 'add', cita);
   res.json({ ok: true, opId });
 });
@@ -119,6 +184,7 @@ router.put('/citas-remote/:citaId', auth, (req, res) => {
   const opId = genId(12);
   req.db.prepare('INSERT INTO citas_remote_ops (id, clinicaId, op, citaId, citaData) VALUES (?,?,?,?,?)')
     .run(opId, req.clinicaId, 'edit', citaId, JSON.stringify({ id: citaId, ...cambios }));
+  _actualizarCitasOcupadas(req.db, req.clinicaId, 'edit', { id: citaId, ...cambios });
   _applyToSnapshot(req.db, req.clinicaId, 'edit', { id: citaId, ...cambios });
   res.json({ ok: true, opId });
 });
@@ -128,6 +194,7 @@ router.delete('/citas-remote/:citaId', auth, (req, res) => {
   const opId = genId(12);
   req.db.prepare('INSERT INTO citas_remote_ops (id, clinicaId, op, citaId, citaData) VALUES (?,?,?,?,?)')
     .run(opId, req.clinicaId, 'delete', citaId, '{}');
+  _actualizarCitasOcupadas(req.db, req.clinicaId, 'delete', { id: citaId });
   _applyToSnapshot(req.db, req.clinicaId, 'delete', { id: citaId });
   res.json({ ok: true, opId });
 });
