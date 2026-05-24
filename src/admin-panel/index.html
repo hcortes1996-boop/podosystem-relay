@@ -340,6 +340,14 @@ function showTab(tab) {
   if (tab === 'dashboard')  loadStats();
   if (tab === 'licencias')  loadLicencias();
   if (tab === 'clinicas')   loadClinicas();
+  // Al salir de "nuevo cliente", limpiar el formulario y ocultar el resultado
+  if (tab !== 'nuevo') {
+    document.getElementById('nuevo-cliente-form').reset();
+    document.getElementById('nc-resultado').classList.add('hidden');
+    const btn = document.getElementById('nc-submit');
+    btn.disabled = false;
+    btn.textContent = 'Crear cliente y desplegar web de citas';
+  }
 }
 
 // ── API helpers ─────────────────────────────────────────────────────────────
