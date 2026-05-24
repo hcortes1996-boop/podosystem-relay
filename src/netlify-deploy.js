@@ -122,6 +122,7 @@ async function createNetlifySite(token, slug) {
 async function deployClientSite({ clinicaId, nombre, ciudad = '', direccion = '', telefono = '' }) {
   const token = process.env.NETLIFY_TOKEN;
   if (!token) throw new Error('NETLIFY_TOKEN no configurado en Railway');
+  console.log(`[netlify] Token OK (${token.slice(0,6)}...)`);
 
   const slug    = toSlug(nombre);
   const teleRaw = telefono.replace(/\D/g, '');
@@ -146,19 +147,27 @@ async function deployClientSite({ clinicaId, nombre, ciudad = '', direccion = ''
     colorAccent:  colors.accent,
   };
 
+  console.log(`[netlify] TEMPLATE_DIR: ${TEMPLATE_DIR}`);
+  const templateExists = fs.existsSync(TEMPLATE_DIR);
+  console.log(`[netlify] Template existe: ${templateExists}`);
+  if (!templateExists) throw new Error(`web-template no encontrado en: ${TEMPLATE_DIR}`);
+
+  console.log(`[netlify] Archivos en template: ${fs.readdirSync(TEMPLATE_DIR).join(', ')}`);
+
   const { siteId, siteName } = await createNetlifySite(token, slug);
   console.log(`[netlify] Site creado: ${siteName} (${siteId})`);
 
   const zipBuffer = buildZip(vars);
   console.log(`[netlify] ZIP generado: ${zipBuffer.length} bytes`);
 
-  const { ok, data } = await netlifyPost(
+  const { ok, status, data } = await netlifyPost(
     `/sites/${siteId}/deploys`,
     token,
     zipBuffer,
     'application/zip'
   );
-  if (!ok) throw new Error(`Netlify deploy: ${JSON.stringify(data)}`);
+  console.log(`[netlify] Deploy response: status=${status} ok=${ok} data=${JSON.stringify(data).slice(0,200)}`);
+  if (!ok) throw new Error(`Netlify deploy HTTP ${status}: ${JSON.stringify(data)}`);
 
   const webUrl = `https://${siteName}.netlify.app/cita.html`;
   console.log(`[netlify] Deploy completado: ${webUrl}`);
