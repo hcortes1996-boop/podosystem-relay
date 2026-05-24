@@ -135,6 +135,7 @@ function initDB() {
 
   // Migraciones incrementales (idempotentes: el catch ignora "column already exists")
   try { db.exec('ALTER TABLE agenda_snapshot ADD COLUMN horarioClinica TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE clinicas ADD COLUMN logo BLOB'); } catch (_) {}
 
   return db;
 }

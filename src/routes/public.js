@@ -14,6 +14,15 @@ router.get('/ping', (_req, res) => {
   res.json({ ok: true, ts: new Date().toISOString(), service: 'podosystem-relay' });
 });
 
+/* ── Logo de la clínica (público) ─────────────────────────────── */
+router.get('/clinicas/:id/logo', (req, res) => {
+  const clinica = req.db.prepare('SELECT logo FROM clinicas WHERE id = ? AND activa = 1').get(req.params.id);
+  if (!clinica?.logo) return res.status(404).json({ ok: false, error: 'Logo no disponible' });
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.send(clinica.logo);
+});
+
 /* ── Enviar solicitud de cita ─────────────────────────────────── */
 router.post('/solicitud-cita', rateLimit, (req, res) => {
   const { clinicaId, nombre, telefono, email, motivo, fechaDeseada, horaDeseada, observaciones } = req.body;

@@ -65,4 +65,17 @@ router.put('/solicitudes/:id/gestionar', auth, (req, res) => {
   res.json({ ok: true, estado: nuevoEstado });
 });
 
+/* ── Subir logo de la clínica ─────────────────────────────────── */
+router.put('/logo', auth, (req, res) => {
+  const { logoBase64 } = req.body;
+  if (!logoBase64) return res.status(400).json({ ok: false, error: 'logoBase64 requerido' });
+  try {
+    const buf = Buffer.from(logoBase64, 'base64');
+    req.db.prepare('UPDATE clinicas SET logo = ? WHERE id = ?').run(buf, req.clinicaId);
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 module.exports = router;

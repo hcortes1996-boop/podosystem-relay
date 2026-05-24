@@ -9,6 +9,8 @@
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+// Fix SSL en Windows (solo para tests locales)
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
 const { deployClientSite } = require('../src/netlify-deploy');
 

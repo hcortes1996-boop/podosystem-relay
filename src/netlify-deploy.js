@@ -56,10 +56,11 @@ function applyPlaceholders(content, vars) {
     .replace(/\{\{CLINICA_DIRECCION\}\}/g,        vars.direccion)
     .replace(/\{\{CLINICA_TELEFONO\}\}/g,         vars.telefono)
     .replace(/\{\{CLINICA_TELEFONO_RAW\}\}/g,     vars.telefonoRaw)
-    .replace(/\{\{CLINICA_DESCRIPCION\}\}/g,      vars.descripcion);
+    .replace(/\{\{CLINICA_DESCRIPCION\}\}/g,      vars.descripcion)
+    .replace(/\{\{CLINICA_LOGO_URL\}\}/g,         vars.logoUrl || 'images/logo.png');
 }
 
-function buildZip(vars, logoBuffer = null) {
+function buildZip(vars) {
   const files = {};
 
   function addDir(dir, prefix) {
@@ -71,9 +72,6 @@ function buildZip(vars, logoBuffer = null) {
       } else if (e.name === 'cita.html') {
         const raw = fs.readFileSync(fullPath, 'utf-8');
         files[zipPath] = Buffer.from(applyPlaceholders(raw, vars));
-      } else if (e.name === 'logo.png' && logoBuffer) {
-        // Logo personalizado del cliente — sobreescribe el del template
-        files[zipPath] = logoBuffer;
       } else {
         files[zipPath] = fs.readFileSync(fullPath);
       }
@@ -83,20 +81,6 @@ function buildZip(vars, logoBuffer = null) {
   addDir(TEMPLATE_DIR, '');
   files['_redirects'] = Buffer.from('/  /cita.html  301\n');
   return Buffer.from(zipSync(files));
-}
-
-async function fetchLogo(logoUrl) {
-  if (!logoUrl?.trim()) return null;
-  try {
-    const res = await fetch(logoUrl.trim());
-    if (!res.ok) { console.warn(`[netlify] Logo URL devolvió ${res.status} — se usará logo por defecto`); return null; }
-    const buf = Buffer.from(await res.arrayBuffer());
-    console.log(`[netlify] Logo descargado: ${buf.length} bytes de ${logoUrl}`);
-    return buf;
-  } catch (e) {
-    console.warn(`[netlify] No se pudo descargar el logo (${e.message}) — se usará logo por defecto`);
-    return null;
-  }
 }
 
 async function netlifyPost(path_, token, body, contentType = 'application/json') {
@@ -135,7 +119,7 @@ async function createNetlifySite(token, slug) {
  * @param {string} [opts.telefono]  — teléfono
  * @returns {Promise<{ webUrl: string, netlifyId: string, siteName: string }>}
  */
-async function deployClientSite({ clinicaId, nombre, ciudad = '', direccion = '', telefono = '', logoUrl = '' }) {
+async function deployClientSite({ clinicaId, nombre, ciudad = '', direccion = '', telefono = '' }) {
   const token = process.env.NETLIFY_TOKEN;
   if (!token) throw new Error('NETLIFY_TOKEN no configurado en Railway');
   console.log(`[netlify] Token OK (${token.slice(0,6)}...)`);
@@ -149,6 +133,7 @@ async function deployClientSite({ clinicaId, nombre, ciudad = '', direccion = ''
     : `<strong>${nombre}</strong>`;
 
   const colors = clinicaColors(nombre);
+  const relayBase = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
   const vars = {
     clinicaId,
     nombre,
@@ -161,6 +146,7 @@ async function deployClientSite({ clinicaId, nombre, ciudad = '', direccion = ''
     color1:       colors.color1,
     color2:       colors.color2,
     colorAccent:  colors.accent,
+    logoUrl:      `${relayBase}/api/clinicas/${clinicaId}/logo`,
   };
 
   console.log(`[netlify] TEMPLATE_DIR: ${TEMPLATE_DIR}`);
@@ -170,13 +156,10 @@ async function deployClientSite({ clinicaId, nombre, ciudad = '', direccion = ''
 
   console.log(`[netlify] Archivos en template: ${fs.readdirSync(TEMPLATE_DIR).join(', ')}`);
 
-  const logoBuffer = await fetchLogo(logoUrl);
-  if (logoUrl) console.log(`[netlify] Logo: ${logoBuffer ? 'descargado OK' : 'no disponible, usando default'}`);
-
   const { siteId, siteName } = await createNetlifySite(token, slug);
   console.log(`[netlify] Site creado: ${siteName} (${siteId})`);
 
-  const zipBuffer = buildZip(vars, logoBuffer);
+  const zipBuffer = buildZip(vars);
   console.log(`[netlify] ZIP generado: ${zipBuffer.length} bytes`);
 
   const { ok, status, data } = await netlifyPost(

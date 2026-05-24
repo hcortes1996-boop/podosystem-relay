@@ -170,11 +170,9 @@
               <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Dirección</label>
               <input type="text" id="nc-direccion" placeholder="Calle Ejemplo 1, 41000" class="w-full px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition">
             </div>
-            <div>
-              <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">URL del logo <span class="text-gray-400 font-normal normal-case">(opcional — PNG/JPG accesible públicamente)</span></label>
-              <input type="url" id="nc-logo" placeholder="https://ejemplo.com/logo.png" class="w-full px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-blue-500 transition">
-              <p class="text-xs text-gray-400 mt-1">Si no se indica, se usará un logo genérico. El logo se incluirá directamente en la web.</p>
-            </div>
+            <p class="text-xs text-gray-400 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+              💡 El logo se sube automáticamente cuando el cliente pulsa <strong>Sincronizar</strong> en PodoSystem.
+            </p>
             <button type="submit" id="nc-submit" class="w-full py-3 bg-[#1E3A5F] hover:bg-[#163050] text-white rounded-lg font-semibold text-sm transition">
               Crear cliente y desplegar web de citas
             </button>
@@ -483,7 +481,6 @@ document.getElementById('nuevo-cliente-form').addEventListener('submit', async (
     clinicaCiudad:    document.getElementById('nc-ciudad').value,
     clinicaTelefono:  document.getElementById('nc-telefono').value,
     clinicaDireccion: document.getElementById('nc-direccion').value,
-    clinicaLogoUrl:   document.getElementById('nc-logo').value,
   });
 
   btn.disabled = false;
