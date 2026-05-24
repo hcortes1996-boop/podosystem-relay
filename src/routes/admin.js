@@ -158,6 +158,11 @@ router.get('/api/clinicas', authAdmin, (req, res) => {
   res.json({ ok: true, clinicas });
 });
 
+router.delete('/api/clinicas/:id', authAdmin, (req, res) => {
+  req.db.prepare('DELETE FROM clinicas WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
 // Flujo completo: crear licencia + clínica relay + despliegue Netlify + borrador email
 router.post('/api/nuevo-cliente', authAdmin, async (req, res) => {
   const { clienteNombre, clienteEmail, clinicaNombre, clinicaTelefono = '', clinicaCiudad = '', clinicaDireccion = '' } = req.body;

@@ -126,6 +126,7 @@
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Nombre</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Creada</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Activa</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Acciones</th>
             </tr>
           </thead>
           <tbody id="clinicas-tbody" class="divide-y divide-gray-50">
@@ -449,8 +450,18 @@ async function loadClinicas() {
       <td class="px-4 py-3 font-medium text-sm text-gray-800">${esc(c.nombre)}</td>
       <td class="px-4 py-3 text-xs text-gray-500">${c.createdAt ? c.createdAt.slice(0,10) : '—'}</td>
       <td class="px-4 py-3"><span class="px-2 py-1 rounded-full text-xs font-semibold ${c.activa ? 'tag-active' : 'tag-blocked'}">${c.activa ? 'Activa' : 'Inactiva'}</span></td>
+      <td class="px-4 py-3">
+        <button onclick="eliminarClinica('${esc(c.id)}', '${esc(c.nombre)}')"
+          class="text-xs px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition font-medium">Eliminar</button>
+      </td>
     </tr>
   `).join('');
+}
+
+async function eliminarClinica(id, nombre) {
+  if (!confirm(`¿Eliminar clínica "${nombre}" (${id})?\n\nEsta acción no se puede deshacer.`)) return;
+  await api('DELETE', `/admin/api/clinicas/${id}`);
+  loadClinicas();
 }
 
 // ── Nuevo cliente ─────────────────────────────────────────────────────────────
