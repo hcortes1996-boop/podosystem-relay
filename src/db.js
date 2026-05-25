@@ -136,6 +136,11 @@ function initDB() {
   // Migraciones incrementales (idempotentes: el catch ignora "column already exists")
   try { db.exec('ALTER TABLE agenda_snapshot ADD COLUMN horarioClinica TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE clinicas ADD COLUMN logo BLOB'); } catch (_) {}
+  // v1.5+ — LemonSqueezy y Plan Red
+  try { db.exec("ALTER TABLE licencias ADD COLUMN fuente TEXT NOT NULL DEFAULT 'manual'"); } catch (_) {}
+  try { db.exec('ALTER TABLE licencias ADD COLUMN suscripcionId TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE licencias ADD COLUMN max_podologos INTEGER NOT NULL DEFAULT 1'); } catch (_) {}
+  try { db.exec('ALTER TABLE licencias ADD COLUMN plan_extra INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
 
   return db;
 }

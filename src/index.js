@@ -18,6 +18,11 @@ const app = express();
 
 // CORS abierto — necesario para el widget embebido en cualquier dominio
 app.use(cors());
+
+// Webhook LemonSqueezy — montado ANTES de express.json() para preservar el raw body
+// express.raw() deja req.body como Buffer, necesario para verificar HMAC-SHA256
+app.use('/api/webhooks', express.raw({ type: 'application/json' }), require('./routes/webhooks'));
+
 app.use(express.json());
 
 // Inicializar base de datos y adjuntarla a cada request

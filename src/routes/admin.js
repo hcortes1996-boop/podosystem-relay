@@ -136,7 +136,8 @@ router.post('/api/licencias', authAdmin, (req, res) => {
 router.put('/api/licencias/:id', authAdmin, (req, res) => {
   const { id } = req.params;
   const campos  = ['clienteNombre','clienteEmail','clinicaId','hardwareId','instanceId',
-                   'estado','activadaEn','ultimaValidacion','proximaRenovacion','notas'];
+                   'estado','activadaEn','ultimaValidacion','proximaRenovacion','notas',
+                   'fuente','suscripcionId','max_podologos','plan_extra'];
   const updates = [];
   const vals    = [];
   for (const c of campos) {

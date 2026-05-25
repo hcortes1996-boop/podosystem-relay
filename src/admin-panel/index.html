@@ -101,13 +101,15 @@
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Cliente</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Clave</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Estado</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Fuente</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Suscripción ID</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Activada</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Últ. validación</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Acciones</th>
             </tr>
           </thead>
           <tbody id="licencias-tbody" class="divide-y divide-gray-50">
-            <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400 text-sm">Cargando…</td></tr>
+            <tr><td colspan="8" class="px-4 py-6 text-center text-gray-400 text-sm">Cargando…</td></tr>
           </tbody>
         </table>
       </div>
@@ -389,12 +391,18 @@ async function loadLicencias() {
       <td class="px-4 py-3">
         <span class="px-2 py-1 rounded-full text-xs font-semibold tag-${l.estado}">${l.estado}</span>
       </td>
+      <td class="px-4 py-3">
+        ${l.fuente === 'lemonsqueezy'
+          ? '<span class="px-2 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">LemonSqueezy</span>'
+          : '<span class="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">manual</span>'}
+      </td>
+      <td class="px-4 py-3 font-mono text-xs text-gray-500">${l.suscripcionId ? esc(l.suscripcionId) : '—'}</td>
       <td class="px-4 py-3 text-xs text-gray-500">${l.activadaEn ? l.activadaEn.slice(0,10) : '—'}</td>
       <td class="px-4 py-3 text-xs text-gray-500">${l.ultimaValidacion ? l.ultimaValidacion.slice(0,10) : '—'}</td>
       <td class="px-4 py-3 flex gap-2">
         <button onclick="editarLicencia(${JSON.stringify(l).replace(/"/g,'&quot;')})"
           class="text-xs px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition font-medium">Editar</button>
-        <button onclick="eliminarLicencia('${l.id}', '${esc(l.clienteNombre)}')"
+        <button onclick="eliminarLicencia('${l.id}', '${esc(l.clienteNombre)}', ${l.fuente === 'lemonsqueezy'})"
           class="text-xs px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition font-medium">Eliminar</button>
       </td>
     </tr>
@@ -420,8 +428,11 @@ async function guardarLicencia() {
   loadLicencias();
 }
 
-async function eliminarLicencia(id, nombre) {
-  if (!confirm(`¿Eliminar licencia de ${nombre}? Esta acción no se puede deshacer.`)) return;
+async function eliminarLicencia(id, nombre, esLemonSqueezy = false) {
+  const aviso = esLemonSqueezy
+    ? `⚠️ Esta licencia proviene de LemonSqueezy.\n\nEsto cancelará también la suscripción en LemonSqueezy.\n\n¿Eliminar licencia de ${nombre}?`
+    : `¿Eliminar licencia de ${nombre}? Esta acción no se puede deshacer.`;
+  if (!confirm(aviso)) return;
   await api('DELETE', `/admin/api/licencias/${id}`);
   loadLicencias();
 }
