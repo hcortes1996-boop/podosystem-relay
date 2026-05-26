@@ -65,6 +65,15 @@ router.put('/solicitudes/:id/gestionar', auth, (req, res) => {
   res.json({ ok: true, estado: nuevoEstado });
 });
 
+/* ── Datos de la clínica (webUrl, nombre) ─────────────────────── */
+router.get('/mi-clinica', auth, (req, res) => {
+  const clinica = req.db
+    .prepare('SELECT id, nombre, webUrl FROM clinicas WHERE id = ?')
+    .get(req.clinicaId);
+  if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
+  res.json({ ok: true, clinicaId: clinica.id, nombre: clinica.nombre, webUrl: clinica.webUrl || null });
+});
+
 /* ── Subir logo de la clínica ─────────────────────────────────── */
 router.put('/logo', auth, (req, res) => {
   const { logoBase64 } = req.body;
