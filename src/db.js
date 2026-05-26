@@ -141,6 +141,9 @@ function initDB() {
   try { db.exec('ALTER TABLE licencias ADD COLUMN suscripcionId TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE licencias ADD COLUMN max_podologos INTEGER NOT NULL DEFAULT 1'); } catch (_) {}
   try { db.exec('ALTER TABLE licencias ADD COLUMN plan_extra INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
+  // v1.9.1+ — Código de activación de un solo uso para citas web
+  try { db.exec('ALTER TABLE clinicas ADD COLUMN activation_code TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE clinicas ADD COLUMN activation_code_used INTEGER DEFAULT 0'); } catch (_) {}
 
   return db;
 }
@@ -155,4 +158,11 @@ function genApiKey() {
   return crypto.randomBytes(32).toString('hex');
 }
 
-module.exports = { initDB, genId, genApiKey };
+/** Genera código de activación: 4 letras del nombre + guion + 4 dígitos. Ej: MERI-4829 */
+function genActivationCode(nombre) {
+  const prefix = (nombre || 'PODE').replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 4).padEnd(4, 'X');
+  const num = String(Math.floor(1000 + Math.random() * 9000));
+  return `${prefix}-${num}`;
+}
+
+module.exports = { initDB, genId, genApiKey, genActivationCode };

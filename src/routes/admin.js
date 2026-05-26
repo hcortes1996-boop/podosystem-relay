@@ -20,7 +20,7 @@ const router  = require('express').Router();
 const crypto  = require('crypto');
 const path    = require('path');
 const fs      = require('fs');
-const { genId, genApiKey } = require('../db');
+const { genId, genApiKey, genActivationCode } = require('../db');
 const { deployClientSite } = require('../netlify-deploy');
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'cambiar-este-token-en-railway';
@@ -155,8 +155,17 @@ router.delete('/api/licencias/:id', authAdmin, (req, res) => {
 });
 
 router.get('/api/clinicas', authAdmin, (req, res) => {
-  const clinicas = req.db.prepare('SELECT id, nombre, createdAt, activa FROM clinicas ORDER BY createdAt DESC').all();
+  const clinicas = req.db.prepare('SELECT id, nombre, createdAt, activa, activation_code, activation_code_used FROM clinicas ORDER BY createdAt DESC').all();
   res.json({ ok: true, clinicas });
+});
+
+router.post('/api/clinicas/:id/regenerar-codigo', authAdmin, (req, res) => {
+  const { id } = req.params;
+  const clinica = req.db.prepare('SELECT id, nombre FROM clinicas WHERE id = ?').get(id);
+  if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
+  const activation_code = genActivationCode(clinica.nombre);
+  req.db.prepare('UPDATE clinicas SET activation_code = ?, activation_code_used = 0 WHERE id = ?').run(activation_code, id);
+  res.json({ ok: true, activation_code });
 });
 
 router.delete('/api/clinicas/:id', authAdmin, (req, res) => {
@@ -182,9 +191,10 @@ router.post('/api/nuevo-cliente', authAdmin, async (req, res) => {
   // 2. Crear clínica relay
   const clinicaId = genId(10);
   const apiKey    = genApiKey();
+  const activationCode = genActivationCode(clinicaNombre.trim());
   req.db.prepare(`
-    INSERT INTO clinicas (id, nombre, apiKey) VALUES (?, ?, ?)
-  `).run(clinicaId, clinicaNombre.trim(), apiKey);
+    INSERT INTO clinicas (id, nombre, apiKey, activation_code, activation_code_used) VALUES (?, ?, ?, ?, 0)
+  `).run(clinicaId, clinicaNombre.trim(), apiKey, activationCode);
 
   // 3. Vincular licencia con clínica
   req.db.prepare('UPDATE licencias SET clinicaId = ? WHERE id = ?').run(clinicaId, licId);
@@ -223,12 +233,13 @@ router.post('/api/nuevo-cliente', authAdmin, async (req, res) => {
     apiKey,
     relayUrl,
     webUrl,
+    activationCode,
   });
 
-  res.status(201).json({ ok: true, licenseKey, clinicaId, apiKey, webUrl, netlifyError, emailDraft });
+  res.status(201).json({ ok: true, licenseKey, clinicaId, apiKey, activationCode, webUrl, netlifyError, emailDraft });
 });
 
-function generarEmailBienvenida({ nombre, email, licenseKey, clinicaId, apiKey, relayUrl, webUrl }) {
+function generarEmailBienvenida({ nombre, email, licenseKey, clinicaId, apiKey, relayUrl, webUrl, activationCode }) {
   const seccionCitas = webUrl
     ? `─────────────────────────────────────
 🌐 CITAS ONLINE
@@ -238,20 +249,31 @@ Tu web de reservas ya está lista y activa:
 
 Compártela con tus pacientes (web, WhatsApp, Instagram, etc.).
 
-Para configurarla en PodoSystem ve a:
-  Citas Web → Configurar horario web → pega estos datos → Conectar → Sincronizar:
-  • ID Clínica:  ${clinicaId}
-  • API Key:     ${apiKey}
-  • Relay URL:   ${relayUrl}`
+Para activarla en PodoSystem:
+
+  ┌─────────────────────────────┐
+  │  🔑 CÓDIGO DE ACTIVACIÓN    │
+  │                             │
+  │       ${(activationCode || '').padEnd(9)}          │
+  │                             │
+  └─────────────────────────────┘
+
+  En PodoSystem ve a:
+  Citas Web → escribe el código → Activar citas web`
     : `─────────────────────────────────────
 🌐 CITAS ONLINE (opcional)
 
-Si quieres activar el sistema de reservas online, estos son tus datos:
-  • ID Clínica:  ${clinicaId}
-  • API Key:     ${apiKey}
-  • Relay URL:   ${relayUrl}
+Si quieres activar el sistema de reservas online:
 
-Dentro de PodoSystem ve a: Citas Web → Configuración → pega estos datos → Conectar → Sincronizar.`;
+  ┌─────────────────────────────┐
+  │  🔑 CÓDIGO DE ACTIVACIÓN    │
+  │                             │
+  │       ${(activationCode || '—').padEnd(9)}          │
+  │                             │
+  └─────────────────────────────┘
+
+  En PodoSystem ve a:
+  Citas Web → escribe el código → Activar citas web`;
 
   return {
     para: email,

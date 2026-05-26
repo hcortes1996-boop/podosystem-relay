@@ -126,13 +126,14 @@
             <tr>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">ID</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Nombre</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Cód. Activación</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Creada</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Activa</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Acciones</th>
             </tr>
           </thead>
           <tbody id="clinicas-tbody" class="divide-y divide-gray-50">
-            <tr><td colspan="4" class="px-4 py-6 text-center text-gray-400 text-sm">Cargando…</td></tr>
+            <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400 text-sm">Cargando…</td></tr>
           </tbody>
         </table>
       </div>
@@ -190,14 +191,18 @@
               <p class="text-xs text-gray-500 mb-1">🔑 Clave de licencia</p>
               <p id="nc-r-key" class="font-mono font-bold text-gray-800 text-sm tracking-wider"></p>
             </div>
-            <div class="bg-gray-50 rounded-lg px-4 py-3">
-              <p class="text-xs text-gray-500 mb-1">🌐 ID Clínica relay</p>
-              <p id="nc-r-clinica" class="font-mono text-gray-800 text-sm"></p>
+            <div class="bg-[#2ECC9A]/10 border-2 border-[#2ECC9A] rounded-lg px-4 py-4 text-center">
+              <p class="text-xs font-bold text-[#1E3A5F] uppercase mb-2">🔑 Código de activación de citas web</p>
+              <p id="nc-r-activation" class="font-mono font-bold text-3xl tracking-widest text-[#1E3A5F] mb-2"></p>
+              <p class="text-xs text-gray-500">El cliente lo introduce en PodoSystem → Citas Web → Activar</p>
             </div>
-            <div class="bg-gray-50 rounded-lg px-4 py-3">
-              <p class="text-xs text-gray-500 mb-1">🔐 API Key relay</p>
-              <p id="nc-r-apikey" class="font-mono text-gray-600 text-xs break-all"></p>
-            </div>
+            <details class="bg-gray-50 rounded-lg px-4 py-3 cursor-pointer">
+              <summary class="text-xs text-gray-400 select-none">Datos técnicos (solo para soporte)</summary>
+              <div class="mt-2 space-y-2">
+                <p class="text-xs text-gray-500">ID Clínica: <span id="nc-r-clinica" class="font-mono text-gray-700"></span></p>
+                <p class="text-xs text-gray-500 break-all">API Key: <span id="nc-r-apikey" class="font-mono text-gray-600 text-xs"></span></p>
+              </div>
+            </details>
             <div id="nc-r-web-wrap" class="bg-green-50 border border-green-200 rounded-lg px-4 py-3">
               <p class="text-xs text-green-700 font-semibold mb-1">🌍 Web de citas desplegada</p>
               <a id="nc-r-weburl" href="#" target="_blank" class="text-green-800 text-sm font-mono underline break-all"></a>
@@ -470,6 +475,14 @@ async function loadClinicas() {
     <tr class="hover:bg-gray-50 transition">
       <td class="px-4 py-3 font-mono text-xs text-gray-600">${esc(c.id)}</td>
       <td class="px-4 py-3 font-medium text-sm text-gray-800">${esc(c.nombre)}</td>
+      <td class="px-4 py-3">
+        ${c.activation_code
+          ? `<span class="font-mono font-bold text-sm tracking-wider ${c.activation_code_used ? 'text-gray-400 line-through' : 'text-[#1E3A5F]'}">${esc(c.activation_code)}</span>
+             ${c.activation_code_used ? '<span class="ml-1 text-xs text-gray-400">(usado)</span>' : ''}`
+          : '<span class="text-gray-400 text-xs">—</span>'}
+        <button onclick="regenerarCodigo('${esc(c.id)}', '${esc(c.nombre)}')"
+          class="ml-2 text-xs px-2 py-0.5 bg-blue-50 text-blue-700 rounded hover:bg-blue-100 transition">↻ Nuevo</button>
+      </td>
       <td class="px-4 py-3 text-xs text-gray-500">${c.createdAt ? c.createdAt.slice(0,10) : '—'}</td>
       <td class="px-4 py-3"><span class="px-2 py-1 rounded-full text-xs font-semibold ${c.activa ? 'tag-active' : 'tag-blocked'}">${c.activa ? 'Activa' : 'Inactiva'}</span></td>
       <td class="px-4 py-3">
@@ -484,6 +497,17 @@ async function eliminarClinica(id, nombre) {
   if (!confirm(`¿Eliminar clínica "${nombre}" (${id})?\n\nEsta acción no se puede deshacer.`)) return;
   await api('DELETE', `/admin/api/clinicas/${id}`);
   loadClinicas();
+}
+
+async function regenerarCodigo(id, nombre) {
+  if (!confirm(`¿Generar nuevo código de activación para "${nombre}"?\n\nEl código anterior quedará inválido.`)) return;
+  const res = await api('POST', `/admin/api/clinicas/${id}/regenerar-codigo`);
+  if (res.ok) {
+    alert(`✅ Nuevo código generado para ${nombre}:\n\n${res.activation_code}\n\nCopia este código y envíaselo al cliente.`);
+    loadClinicas();
+  } else {
+    alert('Error: ' + res.error);
+  }
 }
 
 // ── Nuevo cliente ─────────────────────────────────────────────────────────────
@@ -507,10 +531,11 @@ document.getElementById('nuevo-cliente-form').addEventListener('submit', async (
 
   if (!res.ok) { alert('Error: ' + res.error); return; }
 
-  document.getElementById('nc-r-key').textContent     = res.licenseKey;
-  document.getElementById('nc-r-clinica').textContent  = res.clinicaId;
-  document.getElementById('nc-r-apikey').textContent   = res.apiKey;
-  document.getElementById('nc-r-email').textContent    = res.emailDraft.cuerpo;
+  document.getElementById('nc-r-key').textContent        = res.licenseKey;
+  document.getElementById('nc-r-activation').textContent = res.activationCode || '—';
+  document.getElementById('nc-r-clinica').textContent    = res.clinicaId;
+  document.getElementById('nc-r-apikey').textContent     = res.apiKey;
+  document.getElementById('nc-r-email').textContent      = res.emailDraft.cuerpo;
   emailDraftText = res.emailDraft.cuerpo;
 
   const webWrap = document.getElementById('nc-r-web-wrap');

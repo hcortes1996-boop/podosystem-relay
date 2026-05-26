@@ -9,6 +9,30 @@
 const router     = require('express').Router();
 const auth       = require('../middleware/auth');
 
+/* ── Activar citas web con código de un solo uso (público, sin auth) ──── */
+router.post('/activar-citas', (req, res) => {
+  const { activationCode } = req.body;
+  if (!activationCode?.trim()) {
+    return res.status(400).json({ ok: false, error: 'activationCode requerido' });
+  }
+  const code = activationCode.trim().toUpperCase();
+  const clinica = req.db.prepare(
+    'SELECT id, nombre, apiKey, webUrl, activation_code_used FROM clinicas WHERE activation_code = ? AND activa = 1'
+  ).get(code);
+
+  if (!clinica) {
+    return res.status(404).json({ ok: false, error: 'Código de activación no válido. Comprueba que lo has introducido correctamente o solicita uno nuevo a soporte@podosystem.es' });
+  }
+  if (clinica.activation_code_used) {
+    return res.status(409).json({ ok: false, error: 'Este código ya fue utilizado. Solicita un nuevo código a soporte@podosystem.es' });
+  }
+
+  req.db.prepare('UPDATE clinicas SET activation_code_used = 1 WHERE id = ?').run(clinica.id);
+
+  const relayUrl = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
+  res.json({ ok: true, clinicaId: clinica.id, apiKey: clinica.apiKey, relayUrl, webUrl: clinica.webUrl || null, nombre: clinica.nombre });
+});
+
 /* ── Listar solicitudes pendientes ────────────────────────────── */
 router.get('/solicitudes', auth, (req, res) => {
   const { estado = 'pendiente', desde } = req.query;
