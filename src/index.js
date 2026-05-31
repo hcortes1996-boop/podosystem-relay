@@ -16,6 +16,9 @@ const { initDB } = require('./db');
 
 const app = express();
 
+// Trust proxy (Railway / Render) — necesario para rate-limit y logs de IP correctos
+app.set('trust proxy', 1);
+
 // CORS abierto — necesario para el widget embebido en cualquier dominio
 app.use(cors());
 

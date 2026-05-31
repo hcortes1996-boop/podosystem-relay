@@ -93,13 +93,12 @@ router.post('/alta-relay', altaLimiter, async (req, res) => {
   </div>
 </div>`;
 
-  try {
-    await sendMail({ to: adminEmail, subject: `Nueva solicitud de alta: ${nombre_clinica}`, html: adminHtml });
-  } catch (e) {
-    console.error('[alta-relay] Error email admin:', e.message);
-  }
-
+  // Responde inmediatamente — el INSERT ya está committed antes de llegar aquí
   res.status(201).json({ ok: true, id });
+
+  // Fire-and-forget: el email no bloquea la respuesta HTTP
+  sendMail({ to: adminEmail, subject: `Nueva solicitud de alta: ${nombre_clinica}`, html: adminHtml })
+    .catch(e => console.error('[alta-relay] Email error:', e.message));
 });
 
 function esc(s) {
