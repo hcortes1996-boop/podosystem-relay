@@ -270,14 +270,62 @@ router.get('/api/solicitudes-alta', authAdmin, (req, res) => {
 router.post('/api/solicitudes-alta/:id/aprobar', authAdmin, async (req, res) => {
   const { id } = req.params;
   const { notas_admin } = req.body;
+
   const sol = req.db.prepare('SELECT * FROM solicitudes_alta WHERE id = ?').get(id);
   if (!sol) return res.status(404).json({ ok: false, error: 'Solicitud no encontrada' });
+  if (sol.estado === 'aprobada') return res.status(400).json({ ok: false, error: 'Solicitud ya aprobada' });
 
-  req.db.prepare(`
-    UPDATE solicitudes_alta SET estado='aprobada', gestionadaEn=?, notas_admin=? WHERE id=?
-  `).run(new Date().toISOString(), notas_admin || null, id);
+  console.log(`[admin:aprobar] Iniciando — solicitud ${id} / ${sol.nombre_clinica}`);
 
-  res.json({ ok: true });
+  const clinicaId      = genId(10);
+  const apiKey         = genApiKey();
+  const activationCode = genActivationCode(sol.nombre_clinica);
+  const now            = new Date().toISOString();
+
+  try {
+    req.db.transaction(() => {
+      console.log(`[admin:aprobar] INSERT clinicas id=${clinicaId} activation_code=${activationCode}`);
+      req.db.prepare(`
+        INSERT INTO clinicas (id, nombre, apiKey, activation_code, activation_code_used, activa)
+        VALUES (?, ?, ?, ?, 0, 1)
+      `).run(clinicaId, sol.nombre_clinica.trim(), apiKey, activationCode);
+
+      console.log(`[admin:aprobar] UPDATE solicitudes_alta clinicaId=${clinicaId}`);
+      req.db.prepare(`
+        UPDATE solicitudes_alta SET estado='aprobada', gestionadaEn=?, notas_admin=?, clinicaId=? WHERE id=?
+      `).run(now, notas_admin || null, clinicaId, id);
+    })();
+    console.log(`[admin:aprobar] Transacción OK`);
+  } catch (e) {
+    console.error(`[admin:aprobar] Error transacción:`, e.message);
+    return res.status(500).json({ ok: false, error: e.message });
+  }
+
+  // Responde antes de intentar el email
+  res.json({ ok: true, clinica: { id: clinicaId, activation_code: activationCode } });
+
+  // Fire-and-forget: email al cliente con código de activación
+  const relayUrl = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
+  const { sendMail } = require('../email');
+  const html = `
+<div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff">
+  <div style="background:#0f2137;padding:28px 40px">
+    <p style="margin:0;font-size:20px;font-weight:800;color:#fff">Podo<span style="color:#2ecc9a">System</span></p>
+    <p style="margin:6px 0 0;font-size:13px;color:rgba(255,255,255,.5)">Activación de Citas Online</p>
+  </div>
+  <div style="padding:32px 40px">
+    <p style="margin:0 0 16px;color:#1a2a3a">Hola <strong>${esc(sol.profesional)}</strong>,</p>
+    <p style="margin:0 0 24px;color:#1a2a3a">Tu cuenta de <strong>Citas Online PodoSystem</strong> para <strong>${esc(sol.nombre_clinica)}</strong> ya está activa. Usa este código en PodoSystem para activarla:</p>
+    <div style="background:#f0f6ff;border:2px solid #2ecc9a;border-radius:12px;padding:24px;text-align:center;margin:0 0 24px">
+      <p style="margin:0 0 8px;font-size:12px;font-weight:700;color:#1E3A5F;text-transform:uppercase;letter-spacing:.1em">Código de activación</p>
+      <p style="margin:0;font-family:monospace;font-size:28px;font-weight:800;letter-spacing:.15em;color:#0f2137">${esc(activationCode)}</p>
+    </div>
+    <p style="margin:0 0 8px;font-size:.9rem;color:#5a7080">En PodoSystem ve a: <strong>Citas Web → escribe el código → Activar citas web</strong></p>
+    <p style="margin:24px 0 0;font-size:.85rem;color:#aaa">¿Dudas? Escríbenos a <a href="mailto:info@podosystem.es" style="color:#2ecc9a">info@podosystem.es</a></p>
+  </div>
+</div>`;
+  sendMail({ to: sol.email, subject: `Tu código de activación PodoSystem — ${sol.nombre_clinica}`, html })
+    .catch(e => console.error('[admin:aprobar] Email error:', e.message));
 });
 
 router.post('/api/solicitudes-alta/:id/rechazar', authAdmin, async (req, res) => {

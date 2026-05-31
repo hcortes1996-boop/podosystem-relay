@@ -167,6 +167,8 @@ function initDB() {
   // v1.9.1+ — Código de activación de un solo uso para citas web
   try { db.exec('ALTER TABLE clinicas ADD COLUMN activation_code TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE clinicas ADD COLUMN activation_code_used INTEGER DEFAULT 0'); } catch (_) {}
+  // v2.0+ — Referencia a la clínica creada al aprobar solicitud de alta
+  try { db.exec('ALTER TABLE solicitudes_alta ADD COLUMN clinicaId TEXT'); } catch (_) {}
 
   return db;
 }
