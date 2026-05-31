@@ -494,8 +494,9 @@ async function loadClinicas() {
 }
 
 async function eliminarClinica(id, nombre) {
-  if (!confirm(`¿Eliminar clínica "${nombre}" (${id})?\n\nEsta acción no se puede deshacer.`)) return;
-  await api('DELETE', `/admin/api/clinicas/${id}`);
+  if (!confirm(`¿Eliminar clínica "${nombre}" (${id})?\n\nSe borrarán todas sus reservas, solicitudes y configuración.\nEsta acción no se puede deshacer.`)) return;
+  const res = await api('DELETE', `/admin/api/clinicas/${id}`);
+  if (!res.ok) { alert('Error al eliminar: ' + (res.error || 'desconocido')); return; }
   loadClinicas();
 }
 

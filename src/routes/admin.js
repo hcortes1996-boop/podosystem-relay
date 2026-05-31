@@ -169,8 +169,23 @@ router.post('/api/clinicas/:id/regenerar-codigo', authAdmin, (req, res) => {
 });
 
 router.delete('/api/clinicas/:id', authAdmin, (req, res) => {
-  req.db.prepare('DELETE FROM clinicas WHERE id = ?').run(req.params.id);
-  res.json({ ok: true });
+  const { id } = req.params;
+  try {
+    req.db.transaction(() => {
+      req.db.prepare('DELETE FROM citas_remote_ops  WHERE clinicaId = ?').run(id);
+      req.db.prepare('DELETE FROM agenda_snapshot   WHERE clinicaId = ?').run(id);
+      req.db.prepare('DELETE FROM agenda_config     WHERE clinicaId = ?').run(id);
+      req.db.prepare('DELETE FROM citas_ocupadas    WHERE clinicaId = ?').run(id);
+      req.db.prepare('DELETE FROM reservas          WHERE clinicaId = ?').run(id);
+      req.db.prepare('DELETE FROM solicitudes       WHERE clinicaId = ?').run(id);
+      req.db.prepare('DELETE FROM bloqueos          WHERE clinicaId = ?').run(id);
+      req.db.prepare('DELETE FROM clinicas          WHERE id = ?').run(id);
+    })();
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('[admin] Error eliminando clínica:', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 // Flujo completo: crear licencia + clínica relay + despliegue Netlify + borrador email
