@@ -131,6 +131,7 @@
             <tr>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">ID</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Nombre</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Web pública</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Cód. Activación</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Creada</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Activa</th>
@@ -138,7 +139,7 @@
             </tr>
           </thead>
           <tbody id="clinicas-tbody" class="divide-y divide-gray-50">
-            <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400 text-sm">Cargando…</td></tr>
+            <tr><td colspan="7" class="px-4 py-6 text-center text-gray-400 text-sm">Cargando…</td></tr>
           </tbody>
         </table>
       </div>
@@ -529,6 +530,13 @@ async function loadClinicas() {
     <tr class="hover:bg-gray-50 transition">
       <td class="px-4 py-3 font-mono text-xs text-gray-600">${esc(c.id)}</td>
       <td class="px-4 py-3 font-medium text-sm text-gray-800">${esc(c.nombre)}</td>
+      <td class="px-4 py-3 text-xs max-w-[180px]">
+        ${c.webUrl
+          ? `<a href="${esc(c.webUrl)}" target="_blank" class="text-blue-600 underline block truncate">${esc(c.webUrl.replace('https://',''))}</a>`
+          : '<span class="text-gray-400">—</span>'}
+        <button onclick="editarWebUrl('${esc(c.id)}','${esc(c.webUrl||'')}')"
+          class="mt-0.5 text-gray-400 hover:text-blue-600 transition text-xs">✏️ editar</button>
+      </td>
       <td class="px-4 py-3">
         ${c.activation_code
           ? `<span class="font-mono font-bold text-sm tracking-wider ${c.activation_code_used ? 'text-gray-400 line-through' : 'text-[#1E3A5F]'}">${esc(c.activation_code)}</span>
@@ -552,6 +560,14 @@ async function eliminarClinica(id, nombre) {
   const res = await api('DELETE', `/admin/api/clinicas/${id}`);
   if (!res.ok) { alert('Error al eliminar: ' + (res.error || 'desconocido')); return; }
   loadClinicas();
+}
+
+async function editarWebUrl(id, actual) {
+  const url = prompt('URL pública de citas (vacía para borrar):', actual);
+  if (url === null) return;
+  const res = await api('PUT', `/admin/api/clinicas/${id}/weburl`, { webUrl: url });
+  if (res.ok) loadClinicas();
+  else alert('Error: ' + res.error);
 }
 
 async function regenerarCodigo(id, nombre) {
