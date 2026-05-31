@@ -314,8 +314,10 @@ router.post('/api/solicitudes-alta/:id/aprobar', authAdmin, async (req, res) => 
 
   // Background: Netlify deploy → email al cliente (secuencial: email espera a webUrl)
   (async () => {
+    console.log('[admin:aprobar] Background iniciado');
     let webUrl = null;
     if (process.env.NETLIFY_TOKEN) {
+      console.log('[admin:aprobar] NETLIFY_TOKEN presente — iniciando deploy Netlify');
       try {
         const { deployClientSite } = require('../netlify-deploy');
         const result = await deployClientSite({
@@ -331,6 +333,8 @@ router.post('/api/solicitudes-alta/:id/aprobar', authAdmin, async (req, res) => 
       } catch (e) {
         console.error('[admin:aprobar] Netlify error:', e.message);
       }
+    } else {
+      console.log(`[admin:aprobar] NETLIFY_TOKEN no configurado (valor: ${JSON.stringify(process.env.NETLIFY_TOKEN)}) — saltando deploy`);
     }
     try {
       const { sendMail } = require('../email');
