@@ -332,13 +332,17 @@ router.post('/api/solicitudes-alta/:id/aprobar', authAdmin, async (req, res) => 
         console.error('[admin:aprobar] Netlify error:', e.message);
       }
     }
-    const { sendMail } = require('../email');
-    sendMail({
-      to:      sol.email,
-      subject: `Tu código de activación PodoSystem — ${sol.nombre_clinica}`,
-      html:    buildEmailCliente({ sol, activationCode, webUrl }),
-    }).catch(e => console.error('[admin:aprobar] Email error:', e.message));
-  })();
+    try {
+      const { sendMail } = require('../email');
+      await sendMail({
+        to:      sol.email,
+        subject: `Tu código de activación PodoSystem — ${sol.nombre_clinica}`,
+        html:    buildEmailCliente({ sol, activationCode, webUrl }),
+      });
+    } catch (e) {
+      console.error('[admin:aprobar] Email error:', e.message);
+    }
+  })().catch(e => console.error('[admin:aprobar] Error inesperado en background:', e.message));
 });
 
 router.post('/api/solicitudes-alta/:id/rechazar', authAdmin, async (req, res) => {
@@ -469,6 +473,10 @@ Descarga PodoSystem en: https://podosystem.es
 Un saludo,
 El equipo de PodoSystem`.trim()
   };
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 module.exports = router;
