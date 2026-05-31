@@ -131,6 +131,27 @@ function initDB() {
     );
     CREATE INDEX IF NOT EXISTS idx_citas_remote_ops_pendientes
       ON citas_remote_ops(clinicaId, syncedAt, createdAt);
+
+    -- Solicitudes de alta desde alta-relay.html
+    CREATE TABLE IF NOT EXISTS solicitudes_alta (
+      id                TEXT PRIMARY KEY,
+      nombre_clinica    TEXT NOT NULL,
+      profesional       TEXT NOT NULL,
+      nif               TEXT,
+      ciudad            TEXT,
+      provincia         TEXT,
+      telefono          TEXT NOT NULL,
+      email             TEXT NOT NULL,
+      web_citas         TEXT,
+      mensaje           TEXT,
+      podosystem_version TEXT,
+      estado            TEXT NOT NULL DEFAULT 'pendiente',
+      creadaEn          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      gestionadaEn      TEXT,
+      notas_admin       TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_solicitudes_alta_estado
+      ON solicitudes_alta(estado, creadaEn DESC);
   `);
 
   // Migraciones incrementales (idempotentes: el catch ignora "column already exists")

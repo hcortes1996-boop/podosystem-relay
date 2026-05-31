@@ -57,6 +57,7 @@ app.use('/api', require('./routes/registro'));
 app.use('/api', require('./routes/clinica'));
 app.use('/api', require('./routes/bloqueos'));
 app.use('/api', require('./routes/agenda'));
+app.use('/api', require('./routes/alta'));
 
 // Panel de administración — montado en /admin para claridad de rutas
 app.use('/admin', require('./routes/admin'));

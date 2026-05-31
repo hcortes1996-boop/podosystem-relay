@@ -99,6 +99,7 @@ router.get('/api/stats', authAdmin, (req, res) => {
   const activas   = licencias.filter(l => l.estado === 'active').length;
   const trial     = licencias.filter(l => l.estado === 'trial').length;
   const expiradas = licencias.filter(l => l.estado === 'expired' || l.estado === 'blocked').length;
+  const solicitudesPendientes = req.db.prepare("SELECT COUNT(*) AS n FROM solicitudes_alta WHERE estado='pendiente'").get().n;
 
   res.json({
     ok: true,
@@ -109,6 +110,7 @@ router.get('/api/stats', authAdmin, (req, res) => {
       expiradas,
       totalClinicas: clinicas.length,
       ingresosMes: activas * 19,
+      solicitudesPendientes,
     }
   });
 });
@@ -252,6 +254,65 @@ router.post('/api/nuevo-cliente', authAdmin, async (req, res) => {
   });
 
   res.status(201).json({ ok: true, licenseKey, clinicaId, apiKey, activationCode, webUrl, netlifyError, emailDraft });
+});
+
+// ── Solicitudes de alta (formulario alta-relay.html) ─────────────────────────
+
+router.get('/api/solicitudes-alta', authAdmin, (req, res) => {
+  const { estado } = req.query;
+  const sql = estado
+    ? 'SELECT * FROM solicitudes_alta WHERE estado = ? ORDER BY creadaEn DESC'
+    : 'SELECT * FROM solicitudes_alta ORDER BY creadaEn DESC';
+  const rows = estado ? req.db.prepare(sql).all(estado) : req.db.prepare(sql).all();
+  res.json({ ok: true, solicitudes: rows });
+});
+
+router.post('/api/solicitudes-alta/:id/aprobar', authAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { notas_admin } = req.body;
+  const sol = req.db.prepare('SELECT * FROM solicitudes_alta WHERE id = ?').get(id);
+  if (!sol) return res.status(404).json({ ok: false, error: 'Solicitud no encontrada' });
+
+  req.db.prepare(`
+    UPDATE solicitudes_alta SET estado='aprobada', gestionadaEn=?, notas_admin=? WHERE id=?
+  `).run(new Date().toISOString(), notas_admin || null, id);
+
+  res.json({ ok: true });
+});
+
+router.post('/api/solicitudes-alta/:id/rechazar', authAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { notas_admin, enviar_email } = req.body;
+  const sol = req.db.prepare('SELECT * FROM solicitudes_alta WHERE id = ?').get(id);
+  if (!sol) return res.status(404).json({ ok: false, error: 'Solicitud no encontrada' });
+
+  req.db.prepare(`
+    UPDATE solicitudes_alta SET estado='rechazada', gestionadaEn=?, notas_admin=? WHERE id=?
+  `).run(new Date().toISOString(), notas_admin || null, id);
+
+  if (enviar_email) {
+    const { sendMail } = require('../email');
+    const html = `
+<div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff">
+  <div style="background:#0f2137;padding:28px 40px">
+    <p style="margin:0;font-size:20px;font-weight:800;color:#fff">Podo<span style="color:#2ecc9a">System</span></p>
+  </div>
+  <div style="padding:32px 40px">
+    <p>Hola ${esc(sol.profesional)},</p>
+    <p>Hemos recibido tu solicitud de información sobre PodoSystem para <strong>${esc(sol.nombre_clinica)}</strong>.</p>
+    <p>Lamentablemente no podemos atenderte en este momento.${notas_admin ? ` ${esc(notas_admin)}` : ''}</p>
+    <p>Si tienes alguna duda, contáctanos en <a href="mailto:info@podosystem.es">info@podosystem.es</a>.</p>
+    <p style="margin-top:32px;color:#666">El equipo de PodoSystem</p>
+  </div>
+</div>`;
+    try {
+      await sendMail({ to: sol.email, subject: 'Tu solicitud en PodoSystem', html });
+    } catch (e) {
+      console.error('[solicitudes-alta] Error email rechazo:', e.message);
+    }
+  }
+
+  res.json({ ok: true });
 });
 
 function generarEmailBienvenida({ nombre, email, licenseKey, clinicaId, apiKey, relayUrl, webUrl, activationCode }) {
