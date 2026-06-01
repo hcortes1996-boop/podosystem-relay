@@ -18,7 +18,9 @@ router.get('/ping', (_req, res) => {
 router.get('/clinicas/:id/logo', (req, res) => {
   const clinica = req.db.prepare('SELECT logo FROM clinicas WHERE id = ? AND activa = 1').get(req.params.id);
   if (!clinica?.logo) return res.status(404).json({ ok: false, error: 'Logo no disponible' });
-  res.setHeader('Content-Type', 'image/png');
+  // Detectar formato por magic bytes: FF D8 = JPEG, 89 50 4E 47 = PNG
+  const isJpeg = clinica.logo[0] === 0xFF && clinica.logo[1] === 0xD8;
+  res.setHeader('Content-Type', isJpeg ? 'image/jpeg' : 'image/png');
   res.setHeader('Cache-Control', 'public, max-age=3600');
   res.send(clinica.logo);
 });
