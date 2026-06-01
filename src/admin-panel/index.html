@@ -523,7 +523,7 @@ async function loadClinicas() {
   const { clinicas } = await api('GET', '/admin/api/clinicas');
   const tbody = document.getElementById('clinicas-tbody');
   if (!clinicas?.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-gray-400 text-sm">Sin clínicas registradas</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="px-4 py-6 text-center text-gray-400 text-sm">Sin clínicas registradas</td></tr>';
     return;
   }
   tbody.innerHTML = clinicas.map(c => `
@@ -547,7 +547,11 @@ async function loadClinicas() {
       </td>
       <td class="px-4 py-3 text-xs text-gray-500">${c.createdAt ? c.createdAt.slice(0,10) : '—'}</td>
       <td class="px-4 py-3"><span class="px-2 py-1 rounded-full text-xs font-semibold ${c.activa ? 'tag-active' : 'tag-blocked'}">${c.activa ? 'Activa' : 'Inactiva'}</span></td>
-      <td class="px-4 py-3">
+      <td class="px-4 py-3 flex gap-1.5 flex-wrap">
+        ${c.netlifyId
+          ? `<button onclick="redeployClinica('${esc(c.id)}', '${esc(c.nombre)}')"
+              class="text-xs px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition font-medium">↻ Redeploy web</button>`
+          : `<span class="text-xs text-gray-300 px-3 py-1.5">Sin Netlify</span>`}
         <button onclick="eliminarClinica('${esc(c.id)}', '${esc(c.nombre)}')"
           class="text-xs px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition font-medium">Eliminar</button>
       </td>
@@ -568,6 +572,19 @@ async function editarWebUrl(id, actual) {
   const res = await api('PUT', `/admin/api/clinicas/${id}/weburl`, { webUrl: url });
   if (res.ok) loadClinicas();
   else alert('Error: ' + res.error);
+}
+
+async function redeployClinica(id, nombre) {
+  if (!confirm(`¿Redesplegar la web de citas de "${nombre}"?\n\nSe volverá a generar el ZIP con el template actual y se subirá al sitio Netlify existente. La URL no cambia.`)) return;
+  const btn = [...document.querySelectorAll('button')].find(b => b.textContent.includes('Redeploy web') && b.getAttribute('onclick')?.includes(id));
+  if (btn) { btn.disabled = true; btn.textContent = 'Desplegando…'; }
+  const res = await api('POST', `/admin/api/clinicas/${id}/redeploy`);
+  if (btn) { btn.disabled = false; btn.textContent = '↻ Redeploy web'; }
+  if (res.ok) {
+    alert(`✅ Redeploy completado para "${nombre}".\n\nURL: ${res.webUrl || '(sin cambios)'}`);
+  } else {
+    alert(`❌ Error al redesplegar "${nombre}":\n\n${res.error || 'Error desconocido'}`);
+  }
 }
 
 async function regenerarCodigo(id, nombre) {

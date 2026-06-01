@@ -176,4 +176,58 @@ async function deployClientSite({ clinicaId, nombre, ciudad = '', direccion = ''
   return { webUrl, netlifyId: siteId, siteName };
 }
 
-module.exports = { deployClientSite };
+/**
+ * redeployClientSite — Vuelve a desplegar el template sobre un sitio Netlify existente.
+ * No crea un site nuevo: POST al netlifyId existente. La URL pública no cambia.
+ *
+ * @param {object} opts
+ * @param {string} opts.clinicaId
+ * @param {string} opts.nombre
+ * @param {string} [opts.ciudad]
+ * @param {string} [opts.direccion]
+ * @param {string} [opts.telefono]
+ * @param {string} opts.netlifyId  — ID del site Netlify ya existente
+ * @returns {Promise<void>}
+ */
+async function redeployClientSite({ clinicaId, nombre, ciudad = '', direccion = '', telefono = '', netlifyId }) {
+  const token = process.env.NETLIFY_TOKEN;
+  if (!token) throw new Error('NETLIFY_TOKEN no configurado en Railway');
+  if (!netlifyId) throw new Error('netlifyId requerido para redeploy');
+
+  const teleRaw = telefono.replace(/\D/g, '');
+  const partes  = nombre.trim().split(/\s+/);
+  const nombreHeader = partes.length >= 3
+    ? `${partes.slice(0, -1).join(' ')}<br><strong>${partes[partes.length - 1]}</strong>`
+    : `<strong>${nombre}</strong>`;
+
+  const colors   = clinicaColors(nombre);
+  const relayBase = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
+  const vars = {
+    clinicaId,
+    nombre,
+    nombreHeader,
+    ciudad:      ciudad    || 'su ciudad',
+    direccion:   direccion || '',
+    telefono:    telefono  || 'Sin teléfono',
+    telefonoRaw: teleRaw   || '000000000',
+    descripcion: `Podología en ${ciudad || nombre}`,
+    color1:      colors.color1,
+    color2:      colors.color2,
+    colorAccent: colors.accent,
+    logoUrl:     `${relayBase}/api/clinicas/${clinicaId}/logo`,
+  };
+
+  const zipBuffer = buildZip(vars);
+  console.log(`[netlify:redeploy] ZIP generado: ${zipBuffer.length} bytes → site ${netlifyId}`);
+
+  const { ok, status, data } = await netlifyPost(
+    `/sites/${netlifyId}/deploys`,
+    token,
+    zipBuffer,
+    'application/zip'
+  );
+  console.log(`[netlify:redeploy] response: status=${status} ok=${ok}`);
+  if (!ok) throw new Error(`Netlify redeploy HTTP ${status}: ${JSON.stringify(data)}`);
+}
+
+module.exports = { deployClientSite, redeployClientSite };

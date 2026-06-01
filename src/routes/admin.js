@@ -21,7 +21,7 @@ const crypto  = require('crypto');
 const path    = require('path');
 const fs      = require('fs');
 const { genId, genApiKey, genActivationCode } = require('../db');
-const { deployClientSite } = require('../netlify-deploy');
+const { deployClientSite, redeployClientSite } = require('../netlify-deploy');
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'cambiar-este-token-en-railway';
 
@@ -157,7 +157,7 @@ router.delete('/api/licencias/:id', authAdmin, (req, res) => {
 });
 
 router.get('/api/clinicas', authAdmin, (req, res) => {
-  const clinicas = req.db.prepare('SELECT id, nombre, webUrl, createdAt, activa, activation_code, activation_code_used FROM clinicas ORDER BY createdAt DESC').all();
+  const clinicas = req.db.prepare('SELECT id, nombre, webUrl, netlifyId, createdAt, activa, activation_code, activation_code_used FROM clinicas ORDER BY createdAt DESC').all();
   res.json({ ok: true, clinicas });
 });
 
@@ -262,6 +262,43 @@ router.post('/api/nuevo-cliente', authAdmin, async (req, res) => {
   });
 
   res.status(201).json({ ok: true, licenseKey, clinicaId, apiKey, activationCode, webUrl, netlifyError, emailDraft });
+});
+
+// ── Redeploy de site Netlify existente ───────────────────────────────────────
+
+router.post('/api/clinicas/:id/redeploy', authAdmin, async (req, res) => {
+  const { id } = req.params;
+  const clinica = req.db.prepare('SELECT id, nombre, netlifyId, webUrl FROM clinicas WHERE id = ?').get(id);
+  if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
+  if (!clinica.netlifyId) {
+    return res.status(400).json({
+      ok: false,
+      error: 'Esta clínica no tiene sitio Netlify asociado. Créalo primero con el flujo de aprobación.',
+    });
+  }
+  if (!process.env.NETLIFY_TOKEN) {
+    return res.status(503).json({ ok: false, error: 'NETLIFY_TOKEN no configurado en Railway' });
+  }
+
+  // Recuperar ciudad/teléfono de la solicitud de alta original si existe
+  const alta = req.db.prepare(
+    'SELECT ciudad, telefono FROM solicitudes_alta WHERE clinicaId = ? ORDER BY creadaEn DESC LIMIT 1'
+  ).get(id);
+
+  try {
+    await redeployClientSite({
+      clinicaId:  id,
+      nombre:     clinica.nombre,
+      ciudad:     alta?.ciudad   || '',
+      telefono:   alta?.telefono || '',
+      netlifyId:  clinica.netlifyId,
+    });
+    console.log(`[admin:redeploy] OK → ${clinica.webUrl}`);
+    res.json({ ok: true, webUrl: clinica.webUrl });
+  } catch (e) {
+    console.error('[admin:redeploy]', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 // ── Solicitudes de alta (formulario alta-relay.html) ─────────────────────────

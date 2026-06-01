@@ -1,5 +1,5 @@
 // ============================================================
-// main.js — Shared JavaScript for Clínica del Pie Francisco Román
+// main.js — Shared JavaScript for PodoSystem web de citas
 // ============================================================
 
 (function () {

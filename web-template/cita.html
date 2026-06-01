@@ -821,19 +821,19 @@
   <!-- HEADER (igual que el resto del sitio) -->
   <header class="site-header">
     <div class="container header-inner">
-      <a href="index.html" class="header-logo" aria-label="Inicio — {{CLINICA_NOMBRE}}">
-        <img src="{{CLINICA_LOGO_URL}}" onerror="this.src='images/logo.png'" alt="Logo {{CLINICA_NOMBRE}}" width="52" height="52">
+      <a href="#hero" class="header-logo" aria-label="Inicio — {{CLINICA_NOMBRE}}">
+        <img src="{{CLINICA_LOGO_URL}}" onerror="this.src='images/ps-logo-fallback.svg'" alt="Logo {{CLINICA_NOMBRE}}" width="52" height="52">
         <span class="header-name">{{CLINICA_NOMBRE_HEADER}}</span>
       </a>
       <button class="hamburger" aria-label="Abrir menú" aria-expanded="false">
         <span></span><span></span><span></span>
       </button>
       <nav class="nav-menu" aria-label="Navegación principal">
-        <a href="index.html">Inicio</a>
-        <a href="servicios.html">Servicios</a>
-        <a href="podologo.html">El Podólogo</a>
-        <a href="localizacion.html">Localización</a>
-        <a href="cita.html" class="nav-cta">Pedir Cita</a>
+        <a href="#hero">Inicio</a>
+        <a href="#como-funciona">Cómo funciona</a>
+        <a href="#sobre-nosotros">Sobre la clínica</a>
+        <a href="#contacto">Contacto</a>
+        <a href="#pedir-cita" class="nav-cta">Pedir Cita</a>
       </nav>
     </div>
   </header>
@@ -841,7 +841,7 @@
   <!-- ══════════════════════════════════════
        HERO CON FOTO DE PLAYA
   ══════════════════════════════════════ -->
-  <section class="hero-cita" aria-labelledby="hero-title">
+  <section class="hero-cita" id="hero" aria-labelledby="hero-title">
 
     <div class="hero-cita__bg" id="heroBg"></div>
     <div class="hero-cita__overlay"></div>
@@ -893,7 +893,7 @@
       </div>
 
       <!-- Tarjeta formulario — flujo 2 pasos (vista semanal) -->
-      <div class="cita-glass-card" role="main" id="booking-card">
+      <div class="cita-glass-card" role="main" id="pedir-cita">
 
         <!-- Indicador de pasos -->
         <div class="steps-indicator" id="steps-indicator">
@@ -1007,7 +1007,7 @@
   <!-- ══════════════════════════════════════
        CÓMO FUNCIONA
   ══════════════════════════════════════ -->
-  <section class="como-funciona" aria-labelledby="como-title">
+  <section class="como-funciona" id="como-funciona" aria-labelledby="como-title">
     <div class="container">
       <div class="section-header fade-up">
         <span class="section-label">Simple y rápido</span>
@@ -1080,7 +1080,7 @@
   <!-- ══════════════════════════════════════
        POR QUÉ NOSOTROS
   ══════════════════════════════════════ -->
-  <section class="why-us" aria-labelledby="why-title">
+  <section class="why-us" id="sobre-nosotros" aria-labelledby="why-title">
     <div class="container">
       <div class="section-header fade-up">
         <span class="section-label">Nuestra clínica</span>
@@ -1118,7 +1118,7 @@
   <!-- ══════════════════════════════════════
        CONTACTO DIRECTO
   ══════════════════════════════════════ -->
-  <section class="contacto-alt" aria-labelledby="contacto-title">
+  <section class="contacto-alt" id="contacto" aria-labelledby="contacto-title">
     <div class="container">
       <div class="section-header fade-up" style="margin-bottom:40px">
         <span class="section-label" style="color:rgba(255,255,255,.5)">¿Prefiere contactar directamente?</span>
@@ -1165,8 +1165,8 @@
   <footer class="site-footer">
     <div class="container footer-inner">
       <div class="footer-brand">
-        <a href="index.html" aria-label="Inicio">
-          <img src="{{CLINICA_LOGO_URL}}" onerror="this.src='images/logo.png'" alt="Logo {{CLINICA_NOMBRE}}" width="60" height="60">
+        <a href="#hero" aria-label="Inicio">
+          <img src="{{CLINICA_LOGO_URL}}" onerror="this.src='images/ps-logo-fallback.svg'" alt="Logo {{CLINICA_NOMBRE}}" width="60" height="60">
         </a>
         <div>
           <strong class="footer-clinic-name">{{CLINICA_NOMBRE}}</strong>
@@ -1178,11 +1178,11 @@
         </div>
       </div>
       <nav class="footer-nav" aria-label="Navegación del pie de página">
-        <a href="index.html">Inicio</a>
-        <a href="servicios.html">Servicios</a>
-        <a href="podologo.html">El Podólogo</a>
-        <a href="localizacion.html">Localización</a>
-        <a href="cita.html">Pedir Cita</a>
+        <a href="#hero">Inicio</a>
+        <a href="#como-funciona">Cómo funciona</a>
+        <a href="#sobre-nosotros">Sobre la clínica</a>
+        <a href="#contacto">Contacto</a>
+        <a href="#pedir-cita">Pedir Cita</a>
       </nav>
       <div class="footer-bottom">
         <p>© 2025 {{CLINICA_NOMBRE}}. Todos los derechos reservados.</p>
