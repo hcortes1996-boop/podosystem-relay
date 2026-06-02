@@ -169,6 +169,13 @@ function initDB() {
   try { db.exec('ALTER TABLE clinicas ADD COLUMN activation_code_used INTEGER DEFAULT 0'); } catch (_) {}
   // v2.0+ — Referencia a la clínica creada al aprobar solicitud de alta
   try { db.exec('ALTER TABLE solicitudes_alta ADD COLUMN clinicaId TEXT'); } catch (_) {}
+  // v2.1+ — Datos de contacto de la clínica (necesarios para deploy Netlify diferido)
+  try { db.exec('ALTER TABLE clinicas ADD COLUMN telefono TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE clinicas ADD COLUMN ciudad TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE clinicas ADD COLUMN provincia TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE clinicas ADD COLUMN direccion TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE clinicas ADD COLUMN email TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE clinicas ADD COLUMN profesional TEXT'); } catch (_) {}
 
   return db;
 }

@@ -301,6 +301,81 @@ router.post('/api/clinicas/:id/redeploy', authAdmin, async (req, res) => {
   }
 });
 
+// ── Deploy inicial manual desde admin panel ──────────────────────────────────
+// Crea el sitio Netlify por primera vez para una clínica que aún no tiene web.
+// Si faltan datos esenciales (telefono, ciudad) devuelve 422 con missing[] para
+// que el panel pida completarlos y reintente.
+
+router.post('/api/clinicas/:id/deploy-web', authAdmin, async (req, res) => {
+  const { id } = req.params;
+  const clinica = req.db.prepare(
+    'SELECT id, nombre, webUrl, telefono, ciudad, direccion FROM clinicas WHERE id = ?'
+  ).get(id);
+  if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
+  if (clinica.webUrl) {
+    return res.status(409).json({ ok: false, message: 'Esta clínica ya tiene web activada', webUrl: clinica.webUrl });
+  }
+  if (!process.env.NETLIFY_TOKEN) {
+    return res.status(503).json({ ok: false, error: 'NETLIFY_TOKEN no configurado en Railway' });
+  }
+
+  // Validar campos requeridos para un deploy decente. Sin ellos la web queda con defaults feos.
+  const missing = [];
+  if (!clinica.telefono?.trim()) missing.push('telefono');
+  if (!clinica.ciudad?.trim())   missing.push('ciudad');
+  if (missing.length > 0) {
+    return res.status(422).json({
+      ok: false,
+      missing,
+      message: 'Faltan datos para crear la web. Edita la clínica primero.',
+    });
+  }
+
+  try {
+    const result = await deployClientSite({
+      clinicaId: id,
+      nombre:    clinica.nombre,
+      ciudad:    clinica.ciudad    || '',
+      direccion: clinica.direccion || '',
+      telefono:  clinica.telefono  || '',
+    });
+    req.db.prepare('UPDATE clinicas SET webUrl=?, netlifyId=? WHERE id=?')
+      .run(result.webUrl, result.netlifyId, id);
+    console.log(`[admin:deploy-web] OK → ${result.webUrl}`);
+    res.json({ ok: true, webUrl: result.webUrl });
+  } catch (e) {
+    console.error('[admin:deploy-web]', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+// ── Edición datos de contacto de la clínica ──────────────────────────────────
+// Usado por el modal "campos faltantes" del admin panel y para edición libre.
+// Solo actualiza campos enviados en el body (PATCH-like).
+
+router.put('/api/clinicas/:id/datos', authAdmin, (req, res) => {
+  const { id } = req.params;
+  const clinica = req.db.prepare('SELECT id FROM clinicas WHERE id = ?').get(id);
+  if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
+
+  const editables = ['nombre', 'telefono', 'ciudad', 'provincia', 'direccion', 'email', 'profesional'];
+  const sets = [];
+  const vals = [];
+  for (const k of editables) {
+    if (k in req.body) {
+      sets.push(`${k} = ?`);
+      vals.push(req.body[k]?.trim?.() || req.body[k] || null);
+    }
+  }
+  if (sets.length === 0) {
+    return res.status(400).json({ ok: false, error: 'Nada que actualizar' });
+  }
+  vals.push(id);
+  req.db.prepare(`UPDATE clinicas SET ${sets.join(', ')} WHERE id = ?`).run(...vals);
+  console.log(`[admin:datos] Clínica ${id} actualizada (${sets.length} campos)`);
+  res.json({ ok: true });
+});
+
 // ── Solicitudes de alta (formulario alta-relay.html) ─────────────────────────
 
 router.get('/api/solicitudes-alta', authAdmin, (req, res) => {
@@ -331,9 +406,20 @@ router.post('/api/solicitudes-alta/:id/aprobar', authAdmin, async (req, res) => 
     req.db.transaction(() => {
       console.log(`[admin:aprobar] INSERT clinicas id=${clinicaId} activation_code=${activationCode}`);
       req.db.prepare(`
-        INSERT INTO clinicas (id, nombre, apiKey, activation_code, activation_code_used, activa)
-        VALUES (?, ?, ?, ?, 0, 1)
-      `).run(clinicaId, sol.nombre_clinica.trim(), apiKey, activationCode);
+        INSERT INTO clinicas (id, nombre, apiKey, activation_code, activation_code_used, activa,
+                              telefono, ciudad, provincia, email, profesional)
+        VALUES (?, ?, ?, ?, 0, 1, ?, ?, ?, ?, ?)
+      `).run(
+        clinicaId,
+        sol.nombre_clinica.trim(),
+        apiKey,
+        activationCode,
+        sol.telefono    || null,
+        sol.ciudad      || null,
+        sol.provincia   || null,
+        sol.email       || null,
+        sol.profesional || null,
+      );
 
       console.log(`[admin:aprobar] UPDATE solicitudes_alta clinicaId=${clinicaId}`);
       req.db.prepare(`
@@ -349,37 +435,18 @@ router.post('/api/solicitudes-alta/:id/aprobar', authAdmin, async (req, res) => 
   // Responde al admin inmediatamente — clínica ya creada en BD
   res.json({ ok: true, clinica: { id: clinicaId, activation_code: activationCode } });
 
-  // Background: Netlify deploy → email al cliente (secuencial: email espera a webUrl)
+  // Background: solo email al cliente. La web pública es un paso opcional
+  // posterior — el cliente la activa desde su PodoSystem (o el admin desde el panel).
   (async () => {
-    console.log('[admin:aprobar] Background iniciado');
-    let webUrl = null;
-    if (process.env.NETLIFY_TOKEN) {
-      console.log('[admin:aprobar] NETLIFY_TOKEN presente — iniciando deploy Netlify');
-      try {
-        const { deployClientSite } = require('../netlify-deploy');
-        const result = await deployClientSite({
-          clinicaId,
-          nombre:   sol.nombre_clinica,
-          ciudad:   sol.ciudad   || '',
-          telefono: sol.telefono || '',
-        });
-        webUrl = result.webUrl;
-        req.db.prepare('UPDATE clinicas SET webUrl=?, netlifyId=? WHERE id=?')
-          .run(webUrl, result.netlifyId, clinicaId);
-        console.log(`[admin:aprobar] Netlify OK → ${webUrl}`);
-      } catch (e) {
-        console.error('[admin:aprobar] Netlify error:', e.message);
-      }
-    } else {
-      console.log(`[admin:aprobar] NETLIFY_TOKEN no configurado (valor: ${JSON.stringify(process.env.NETLIFY_TOKEN)}) — saltando deploy`);
-    }
+    console.log('[admin:aprobar] Background iniciado — enviando email');
     try {
       const { sendMail } = require('../email');
       await sendMail({
         to:      sol.email,
         subject: `Tu código de activación PodoSystem — ${sol.nombre_clinica}`,
-        html:    buildEmailCliente({ sol, activationCode, webUrl }),
+        html:    buildEmailCliente({ sol, activationCode, webUrl: null }),
       });
+      console.log('[admin:aprobar] Email enviado a', sol.email);
     } catch (e) {
       console.error('[admin:aprobar] Email error:', e.message);
     }
@@ -422,6 +489,8 @@ router.post('/api/solicitudes-alta/:id/rechazar', authAdmin, async (req, res) =>
 });
 
 function buildEmailCliente({ sol, activationCode, webUrl }) {
+  // webUrl se conserva en la firma por compatibilidad; en el flujo nuevo llega siempre null
+  // (la web pública se activa en un paso posterior, no en el momento de aprobar).
   const seccionWeb = webUrl
     ? `<div style="margin:0 0 24px;padding:16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px">
         <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:.08em">🌐 Tu web de citas</p>
@@ -433,18 +502,23 @@ function buildEmailCliente({ sol, activationCode, webUrl }) {
 <div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff">
   <div style="background:#0f2137;padding:28px 40px">
     <p style="margin:0;font-size:20px;font-weight:800;color:#fff">Podo<span style="color:#2ecc9a">System</span></p>
-    <p style="margin:6px 0 0;font-size:13px;color:rgba(255,255,255,.5)">Activación de Citas Online</p>
+    <p style="margin:6px 0 0;font-size:13px;color:rgba(255,255,255,.5)">Sincronización PC + Móvil activada</p>
   </div>
   <div style="padding:32px 40px">
     <p style="margin:0 0 16px;color:#1a2a3a">Hola <strong>${esc(sol.profesional)}</strong>,</p>
-    <p style="margin:0 0 24px;color:#1a2a3a">Tu cuenta de <strong>Citas Online PodoSystem</strong> para <strong>${esc(sol.nombre_clinica)}</strong> ya está activa.</p>
+    <p style="margin:0 0 20px;color:#1a2a3a;line-height:1.6">Tu cuenta de PodoSystem para <strong>${esc(sol.nombre_clinica)}</strong> está activa. Ya puedes sincronizar la agenda entre el PC de tu clínica y la app móvil de tu equipo. Introduce este código en PodoSystem para conectar el servicio:</p>
     ${seccionWeb}
-    <p style="margin:0 0 12px;color:#1a2a3a;font-size:.9rem">Introduce este código en PodoSystem para activar las citas:</p>
     <div style="background:#f0f6ff;border:2px solid #2ecc9a;border-radius:12px;padding:24px;text-align:center;margin:0 0 24px">
       <p style="margin:0 0 8px;font-size:12px;font-weight:700;color:#1E3A5F;text-transform:uppercase;letter-spacing:.1em">Código de activación</p>
       <p style="margin:0;font-family:monospace;font-size:28px;font-weight:800;letter-spacing:.15em;color:#0f2137">${esc(activationCode)}</p>
     </div>
-    <p style="margin:0 0 8px;font-size:.9rem;color:#5a7080">En PodoSystem ve a: <strong>Citas Web → escribe el código → Activar citas web</strong></p>
+    <p style="margin:0 0 24px;font-size:.9rem;color:#5a7080">En PodoSystem ve a: <strong>Citas Online → Activación → introduce el código → Activar</strong></p>
+
+    <div style="margin:24px 0 0;padding:18px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+      <p style="margin:0 0 8px;font-size:13px;font-weight:700;color:#1e40af">🌐 ¿Quieres que tus pacientes reserven citas online?</p>
+      <p style="margin:0;font-size:.88rem;color:#1e3a8a;line-height:1.6">La web pública es un paso opcional. Cuando estés listo, abre PodoSystem y ve a <strong>Citas Online → Activación → Activar mi web pública</strong>. Tarda menos de un minuto y te da una URL única para compartir con tus pacientes.</p>
+    </div>
+
     <p style="margin:24px 0 0;font-size:.85rem;color:#aaa">¿Dudas? Escríbenos a <a href="mailto:info@podosystem.es" style="color:#2ecc9a">info@podosystem.es</a></p>
   </div>
 </div>`;

@@ -8,6 +8,7 @@
 
 const router     = require('express').Router();
 const auth       = require('../middleware/auth');
+const { deployClientSite } = require('../netlify-deploy');
 
 /* ── Activar citas web con código de un solo uso (público, sin auth) ──── */
 router.post('/activar-citas', (req, res) => {
@@ -96,6 +97,57 @@ router.get('/mi-clinica', auth, (req, res) => {
     .get(req.clinicaId);
   if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
   res.json({ ok: true, clinicaId: clinica.id, nombre: clinica.nombre, webUrl: clinica.webUrl || null });
+});
+
+/* ── Activar web pública (deploy Netlify desde PodoSystem del cliente) ─── */
+// Idempotente: si ya hay webUrl devuelve 409. El body trae los datos
+// actuales de la clínica desde el PC; si llegan, sobrescriben los de BD
+// (el PC es la verdad más reciente). Si no llegan, se usan los de BD.
+router.post('/mi-clinica/activar-web', auth, async (req, res) => {
+  const clinica = req.db.prepare(
+    'SELECT nombre, webUrl, telefono, ciudad, direccion FROM clinicas WHERE id = ?'
+  ).get(req.clinicaId);
+  if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
+  if (clinica.webUrl) {
+    return res.status(409).json({ ok: false, message: 'Ya tienes web activada', webUrl: clinica.webUrl });
+  }
+  if (!process.env.NETLIFY_TOKEN) {
+    return res.status(503).json({ ok: false, error: 'Servicio temporalmente no disponible. Contacta soporte si persiste.' });
+  }
+
+  const body = req.body || {};
+  const nombreFinal    = (body.nombre    || clinica.nombre    || '').trim();
+  const ciudadFinal    = (body.ciudad    || clinica.ciudad    || '').trim();
+  const direccionFinal = (body.direccion || clinica.direccion || '').trim();
+  const telefonoFinal  = (body.telefono  || clinica.telefono  || '').trim();
+
+  // Sincroniza BD con los datos del PC (el cliente puede haberlos modificado
+  // localmente desde que se aprobó la solicitud).
+  try {
+    req.db.prepare(`
+      UPDATE clinicas SET nombre = ?, telefono = ?, ciudad = ?, direccion = ?
+      WHERE id = ?
+    `).run(nombreFinal, telefonoFinal, ciudadFinal, direccionFinal, req.clinicaId);
+  } catch (e) {
+    console.error('[activar-web] UPDATE datos error:', e.message);
+  }
+
+  try {
+    const result = await deployClientSite({
+      clinicaId: req.clinicaId,
+      nombre:    nombreFinal,
+      ciudad:    ciudadFinal,
+      direccion: direccionFinal,
+      telefono:  telefonoFinal,
+    });
+    req.db.prepare('UPDATE clinicas SET webUrl=?, netlifyId=? WHERE id=?')
+      .run(result.webUrl, result.netlifyId, req.clinicaId);
+    console.log(`[activar-web] OK clinica=${req.clinicaId} → ${result.webUrl}`);
+    res.json({ ok: true, webUrl: result.webUrl });
+  } catch (e) {
+    console.error('[activar-web] Deploy error:', e.message);
+    res.status(500).json({ ok: false, error: 'Error temporal al crear tu web. Inténtalo de nuevo en unos minutos o contacta soporte si persiste.' });
+  }
 });
 
 /* ── Subir logo de la clínica ─────────────────────────────────── */
