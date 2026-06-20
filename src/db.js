@@ -152,6 +152,42 @@ function initDB() {
     );
     CREATE INDEX IF NOT EXISTS idx_solicitudes_alta_estado
       ON solicitudes_alta(estado, creadaEn DESC);
+
+    -- v2.2+ — Multi-podólogo (Plan Red web)
+    -- Lista pública de podólogos por clínica. id viene de PodoSystem (UUID),
+    -- único dentro de cada clínica → PK compuesta (clinicaId, id).
+    CREATE TABLE IF NOT EXISTS podologos_publicos (
+      clinicaId          TEXT NOT NULL REFERENCES clinicas(id),
+      id                 TEXT NOT NULL,
+      nombre             TEXT NOT NULL,
+      apellido           TEXT,
+      color              TEXT NOT NULL DEFAULT '#1E3A5F',
+      orden              INTEGER NOT NULL DEFAULT 0,
+      descripcionPublica TEXT,
+      horarioPublico     TEXT,         -- JSON o NULL (fallback a agenda_config.horario)
+      visibleEnWeb       INTEGER NOT NULL DEFAULT 1,
+      activo             INTEGER NOT NULL DEFAULT 1,
+      updatedAt          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY (clinicaId, id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_podologos_publicos_visibles
+      ON podologos_publicos(clinicaId, visibleEnWeb, activo, orden);
+
+    -- v2.2+ — Citas ocupadas POR podólogo (permite varios podólogos en el mismo slot)
+    -- Convive con citas_ocupadas (agregada, sin podologoId) para backwards-compat.
+    -- INTEGER PK + UNIQUE compuesto → permite múltiples filas por (fecha, hora) con
+    -- podologoId distinto, lo que es la semántica multi-podólogo.
+    CREATE TABLE IF NOT EXISTS citas_podologo (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      clinicaId   TEXT NOT NULL REFERENCES clinicas(id),
+      fecha       TEXT NOT NULL,
+      hora        TEXT NOT NULL,
+      duracion    INTEGER NOT NULL DEFAULT 30,
+      podologoId  TEXT NOT NULL,
+      UNIQUE (clinicaId, fecha, hora, podologoId)
+    );
+    CREATE INDEX IF NOT EXISTS idx_citas_podologo_clinica_fecha
+      ON citas_podologo(clinicaId, podologoId, fecha);
   `);
 
   // Migraciones incrementales (idempotentes: el catch ignora "column already exists")
@@ -176,6 +212,9 @@ function initDB() {
   try { db.exec('ALTER TABLE clinicas ADD COLUMN direccion TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE clinicas ADD COLUMN email TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE clinicas ADD COLUMN profesional TEXT'); } catch (_) {}
+
+  // v2.2+ — Multi-podólogo (Plan Red web)
+  try { db.exec('ALTER TABLE reservas ADD COLUMN podologoId TEXT'); } catch (_) {}
 
   return db;
 }

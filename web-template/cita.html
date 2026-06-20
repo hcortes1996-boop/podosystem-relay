@@ -814,6 +814,165 @@
       opacity: 1;
       transform: none;
     }
+
+    /* ── PIEZA 3.3 — Selector de podólogo ────────────────────────── */
+    .podologo-grid {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .podologo-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 16px;
+      background: #fff;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all .18s;
+      text-align: left;
+      width: 100%;
+      font-family: inherit;
+    }
+    .podologo-card:hover {
+      border-color: var(--navy);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(26,35,126,.12);
+    }
+    .podologo-card.selected {
+      border-color: var(--navy);
+      background: #f0f4ff;
+      box-shadow: 0 4px 16px rgba(26,35,126,.18);
+    }
+    .podologo-avatar {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: #fff;
+      flex-shrink: 0;
+      box-shadow: 0 2px 8px rgba(0,0,0,.08);
+    }
+    .podologo-info { flex: 1; min-width: 0; }
+    .podologo-nombre {
+      font-weight: 700;
+      color: #1e293b;
+      font-size: .98rem;
+      line-height: 1.25;
+    }
+    .podologo-desc {
+      font-size: .82rem;
+      color: #64748b;
+      margin-top: 2px;
+      line-height: 1.35;
+    }
+    .podologo-arrow {
+      color: #cbd5e1;
+      font-size: 1.1rem;
+      margin-left: 6px;
+    }
+    .podologo-card:hover .podologo-arrow { color: var(--navy); }
+    /* Botón "Cambiar podólogo" en step-1 */
+    .btn-change-pod {
+      background: none;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 6px 12px;
+      font-size: .82rem;
+      font-weight: 600;
+      cursor: pointer;
+      color: #64748b;
+      margin-bottom: 12px;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all .15s;
+    }
+    .btn-change-pod:hover { border-color: var(--navy); color: var(--navy); }
+
+    /* ── PIEZA 3.3 — Modal elegir podólogo ────────────────────────── */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, .55);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      padding: 20px;
+      animation: modalFadeIn .2s ease-out;
+    }
+    @keyframes modalFadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    .modal-content {
+      background: #fff;
+      border-radius: 18px;
+      padding: 28px 24px 22px;
+      max-width: 460px;
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, .3);
+      position: relative;
+      animation: modalSlideUp .25s ease-out;
+    }
+    @keyframes modalSlideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .modal-content h3 {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.35rem;
+      color: var(--navy);
+      margin: 0 0 18px;
+      padding-right: 30px;
+      line-height: 1.3;
+    }
+    .modal-close {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      background: none;
+      border: none;
+      font-size: 1.4rem;
+      color: #94a3b8;
+      cursor: pointer;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      transition: all .15s;
+    }
+    .modal-close:hover {
+      background: #f1f5f9;
+      color: #475569;
+    }
+
+    /* Dentro del modal, las tarjetas SIEMPRE apiladas verticalmente */
+    #modal-podologo-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+    }
+    #modal-podologo-grid .podologo-card {
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+    }
+    .modal-content {
+      min-width: 320px;  /* Asegurar ancho mínimo decente */
+    }
   </style>
 </head>
 <body>
@@ -906,8 +1065,17 @@
           </div>
         </div>
 
+        <!-- PIEZA 3.3 — PASO 0: Elige podólogo (solo si hay >=2 publicados) -->
+        <div id="step-0" class="booking-step">
+          <h2>¿Con qué podólogo prefieres?</h2>
+          <div class="podologo-grid" id="podologo-grid">
+            <p style="color:#94a3b8;font-size:.88rem;text-align:center;padding:20px 0">Cargando…</p>
+          </div>
+        </div>
+
         <!-- PASO 1: Vista semanal -->
         <div id="step-1" class="booking-step active">
+          <button class="btn-change-pod" id="back-to-pod" style="display:none">← Cambiar podólogo</button>
           <h2>Selecciona día y hora</h2>
           <div class="week-nav">
             <button class="week-nav-btn" id="prev-week" disabled>← Anterior</button>
@@ -1217,6 +1385,16 @@
     </svg>
   </a>
 
+  <!-- Pieza 3.3 — Modal "Elegir podólogo" (mostrado solo cuando 2+ disponibles).
+       Debe estar en el DOM antes de los <script> que registran sus listeners. -->
+  <div id="modal-elegir-podologo" class="modal-overlay" style="display:none">
+    <div class="modal-content">
+      <button class="modal-close" id="modal-close" aria-label="Cerrar">✕</button>
+      <h3 id="modal-titulo">¿Con cuál prefiere?</h3>
+      <div class="podologo-grid" id="modal-podologo-grid"></div>
+    </div>
+  </div>
+
   <script src="js/main.js"></script>
   <script>
     // Parallax suave en el hero
@@ -1257,6 +1435,11 @@
     let selectedHora  = null;
     let semanaData    = null;
 
+    // Pieza 3.3 — multi-podólogo
+    let podologos = [];               // lista cargada al iniciar
+    let podologoSeleccionado = null;  // null = "Cualquier disponible"
+    let multiPodologo = false;        // true si podologos.length >= 2
+
     // Sumar N días a una fecha ISO
     function sumarDias(fechaStr, n) {
       const d = new Date(fechaStr + 'T12:00:00Z');
@@ -1264,20 +1447,116 @@
       return d.toISOString().slice(0, 10);
     }
 
-    // ── Paso 1/2 indicators ─────────────────────────────────────
+    // ── Paso 0/1/2 indicators ───────────────────────────────────
     function showStep(n) {
-      ['step-1','step-2','step-success'].forEach(id => {
+      // Pieza 3.3 — cerrar modal defensivamente si quedó abierto
+      cerrarModalElegirPodologo();
+      ['step-0','step-1','step-2','step-success'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.classList.toggle('active', id === 'step-' + n);
       });
       document.getElementById('steps-indicator').style.display = (n === 'success') ? 'none' : 'flex';
-      for (let i = 1; i <= 2; i++) {
+      const maxStep = multiPodologo ? 2 : 2;
+      const startStep = multiPodologo ? 0 : 1;
+      const numActual = Number(n);
+      for (let i = startStep; i <= maxStep; i++) {
         const dot = document.getElementById('dot-' + i);
         if (!dot) continue;
         dot.classList.remove('active', 'done');
-        if (i < n) dot.classList.add('done');
-        else if (i === n) dot.classList.add('active');
+        if (i < numActual) dot.classList.add('done');
+        else if (i === numActual) dot.classList.add('active');
       }
+    }
+
+    // ── Pieza 3.3 — Selector de podólogo ────────────────────────
+    const ICONO_CUALQUIERA = `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="9" cy="8" r="3"/>
+      <circle cx="17" cy="9" r="2.5"/>
+      <path d="M3 19v-1a6 6 0 0 1 12 0v1"/>
+      <path d="M16 14a4 4 0 0 1 5 4v1"/>
+    </svg>`;
+
+    function inyectarTercerDot() {
+      // Convierte indicador 1-2 en 0-1-2 añadiendo dot-0 + línea al principio.
+      // Renumera labels: dot-0="Podólogo", dot-1="Día y hora", dot-2="Tus datos".
+      const indicator = document.getElementById('steps-indicator');
+      const existingDot1 = document.getElementById('dot-1');
+      const existingDot2 = document.getElementById('dot-2');
+      if (!indicator || !existingDot1 || !existingDot2) return;
+
+      // Renumerar: el viejo dot-1 pasa a dot-1 (Día y hora) y el viejo dot-2 a dot-2 (Tus datos).
+      // Solo cambia su contenido visual (label), mantienen id.
+      existingDot1.querySelector('.dot-num').textContent = '2';
+      existingDot1.querySelector('.dot-label').textContent = 'Día y hora';
+      existingDot2.querySelector('.dot-num').textContent = '3';
+      existingDot2.querySelector('.dot-label').textContent = 'Tus datos';
+
+      // Crear nuevo dot-0 + línea
+      const dot0 = document.createElement('div');
+      dot0.className = 'step-dot active';
+      dot0.id = 'dot-0';
+      dot0.innerHTML = '<span class="dot-num">1</span><span class="dot-label">Podólogo</span>';
+      const linea = document.createElement('div');
+      linea.className = 'step-line';
+
+      indicator.insertBefore(linea, existingDot1);
+      indicator.insertBefore(dot0, linea);
+    }
+
+    function crearPodologoCard(p) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'podologo-card';
+      const avatarContent = p.id === null
+        ? ICONO_CUALQUIERA
+        : (p.nombre || '?').trim().charAt(0).toUpperCase();
+      const apellido = p.apellido ? ' ' + escapeHtml(p.apellido) : '';
+      const desc = p.descripcionPublica
+        ? `<div class="podologo-desc">${escapeHtml(p.descripcionPublica)}</div>`
+        : '';
+      btn.innerHTML = `
+        <div class="podologo-avatar" style="background:${p.color || '#1a237e'}">${avatarContent}</div>
+        <div class="podologo-info">
+          <div class="podologo-nombre">${escapeHtml(p.nombre)}${apellido}</div>
+          ${desc}
+        </div>
+        <span class="podologo-arrow">→</span>
+      `;
+      btn.addEventListener('click', () => seleccionarPodologo(p));
+      return btn;
+    }
+
+    function escapeHtml(s) {
+      if (s == null) return '';
+      return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function renderPodologoGrid() {
+      const grid = document.getElementById('podologo-grid');
+      grid.innerHTML = '';
+      // Tarjeta "Cualquier disponible" primera
+      grid.appendChild(crearPodologoCard({
+        id: null,
+        nombre: 'Cualquier disponible',
+        apellido: null,
+        descripcionPublica: 'Sin preferencia',
+        color: '#1a237e'
+      }));
+      // Tarjetas individuales
+      for (const p of podologos) grid.appendChild(crearPodologoCard(p));
+    }
+
+    function seleccionarPodologo(p) {
+      // Pieza 3.3 — reset al cambiar de podólogo (limpia fecha/hora previas)
+      if (podologoSeleccionado !== p.id) {
+        selectedFecha = null;
+        selectedHora = null;
+      }
+      podologoSeleccionado = p.id; // null para "Cualquiera"
+      showStep(1);
+      cargarSemana(new Date().toISOString().slice(0, 10));
     }
 
     // ── Cargar y renderizar semana ──────────────────────────────
@@ -1291,7 +1570,11 @@
       const timeout = setTimeout(() => controller.abort(), 9000);
 
       try {
-        const res  = await fetch(`${RELAY_URL}/api/semana/${CLINICA_ID}?desde=${desde}`, { signal: controller.signal });
+        // Pieza 3.3 — URL con podologoId si hay selección concreta
+        const url = podologoSeleccionado
+          ? `${RELAY_URL}/api/semana/${CLINICA_ID}/${encodeURIComponent(podologoSeleccionado)}?desde=${desde}`
+          : `${RELAY_URL}/api/semana/${CLINICA_ID}?desde=${desde}`;
+        const res  = await fetch(url, { signal: controller.signal });
         const data = await res.json();
         if (!data.ok) throw new Error(data.error);
 
@@ -1405,21 +1688,103 @@
     }
 
     // ── Seleccionar slot → paso 2 ───────────────────────────────
-    function pickSlot(fecha, hora, cellEl) {
-      selectedFecha = fecha;
-      selectedHora  = hora;
-
+    // Pieza 3.3 — Si "Cualquier disponible" (podologoSeleccionado === null),
+    // consultar /api/podologos-disponibles para resolver el podólogo:
+    //   0 disponibles → alerta + recarga semana
+    //   1 disponible → asignación silenciosa + avanza a step-2
+    //   2+ disponibles → mini-modal de elección
+    async function pickSlot(fecha, hora, cellEl) {
       // Highlight selected
       document.querySelectorAll('.wg-slot.selected').forEach(el => el.classList.remove('selected'));
       cellEl.classList.add('selected');
 
+      if (podologoSeleccionado) {
+        // Caso normal: ya hay podólogo elegido → avanzar directo
+        avanzarASummaryYStep2(fecha, hora);
+        return;
+      }
+
+      // Caso "Cualquier disponible" → consultar disponibles
+      try {
+        const res = await fetch(`${RELAY_URL}/api/podologos-disponibles/${CLINICA_ID}/${fecha}/${encodeURIComponent(hora)}`);
+        const data = await res.json();
+        const disponibles = (data && data.ok) ? (data.podologos || []) : [];
+
+        if (disponibles.length === 0) {
+          alert('Lo sentimos, esa hora ya no está disponible. Por favor, elija otra.');
+          cargarSemana(desdeActual);
+          return;
+        }
+
+        if (disponibles.length === 1) {
+          // Asignación silenciosa
+          podologoSeleccionado = disponibles[0].id;
+          avanzarASummaryYStep2(fecha, hora);
+          return;
+        }
+
+        // 2+ disponibles → modal de elección
+        selectedFecha = fecha;
+        selectedHora  = hora;
+        abrirModalElegirPodologo(disponibles, hora);
+      } catch (e) {
+        console.error('[podologos-disponibles]', e);
+        alert('Error al verificar disponibilidad. Inténtelo de nuevo.');
+      }
+    }
+
+    function avanzarASummaryYStep2(fecha, hora) {
+      selectedFecha = fecha;
+      selectedHora  = hora;
       const d = new Date(fecha + 'T12:00:00');
       const dLabel = d.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' });
       document.getElementById('summary-line').textContent =
         `📅 ${dLabel.charAt(0).toUpperCase() + dLabel.slice(1)} · 🕐 ${hora}h (${duracionSlot} min)`;
-
       showStep(2);
     }
+
+    // ── Pieza 3.3 — Modal "Elegir podólogo" (cuando 2+ libres en mismo slot) ──
+    function abrirModalElegirPodologo(disponibles, hora) {
+      document.getElementById('modal-titulo').textContent = `A las ${hora}h están disponibles:`;
+      const grid = document.getElementById('modal-podologo-grid');
+      grid.innerHTML = '';
+
+      for (const p of disponibles) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'podologo-card';
+        const nombre = escapeHtml(p.nombre + (p.apellido ? ' ' + p.apellido : ''));
+        const desc = p.descripcionPublica ? escapeHtml(p.descripcionPublica) : '';
+        const inicial = (p.nombre || '?').charAt(0).toUpperCase();
+        btn.innerHTML = `
+          <div class="podologo-avatar" style="background:${p.color || '#1E3A5F'}">${inicial}</div>
+          <div class="podologo-info">
+            <div class="podologo-nombre">${nombre}</div>
+            ${desc ? `<div class="podologo-desc">${desc}</div>` : ''}
+          </div>
+          <span class="podologo-arrow">→</span>
+        `;
+        btn.addEventListener('click', () => {
+          podologoSeleccionado = p.id;
+          cerrarModalElegirPodologo();
+          avanzarASummaryYStep2(selectedFecha, selectedHora);
+        });
+        grid.appendChild(btn);
+      }
+
+      document.getElementById('modal-elegir-podologo').style.display = 'flex';
+    }
+
+    function cerrarModalElegirPodologo() {
+      const m = document.getElementById('modal-elegir-podologo');
+      if (m) m.style.display = 'none';
+    }
+
+    // Listeners del modal: botón cerrar + click fuera
+    document.getElementById('modal-close').addEventListener('click', cerrarModalElegirPodologo);
+    document.getElementById('modal-elegir-podologo').addEventListener('click', (e) => {
+      if (e.target.id === 'modal-elegir-podologo') cerrarModalElegirPodologo();
+    });
 
     // ── Navegación rolling (±7 días desde el inicio visible) ───
     document.getElementById('prev-week').addEventListener('click', () => {
@@ -1431,6 +1796,9 @@
 
     // ── Botón volver ────────────────────────────────────────────
     document.getElementById('back-to-1').addEventListener('click', () => showStep(1));
+
+    // Pieza 3.3 — botón "Cambiar podólogo" en step-1 (solo si multiPodologo)
+    document.getElementById('back-to-pod').addEventListener('click', () => showStep(0));
 
     // ── Envío del formulario ────────────────────────────────────
     document.getElementById('cita-form').addEventListener('submit', async (e) => {
@@ -1478,7 +1846,8 @@
             telefono:      document.getElementById('telefono').value.trim(),
             email:         document.getElementById('email')?.value.trim() || null,
             motivo:        document.getElementById('motivo').value,
-            observaciones: document.getElementById('observaciones').value.trim() || null
+            observaciones: document.getElementById('observaciones').value.trim() || null,
+            podologoId:    podologoSeleccionado  // Pieza 3.3 — null si "Cualquiera"
           })
         });
         const data = await res.json();
@@ -1519,9 +1888,29 @@
     });
 
     // ── Inicializar ─────────────────────────────────────────────
-    showStep(1);
-    // Carga inicial: el servidor devuelve ventanaInicio por defecto (sin ?desde)
-    cargarSemana(new Date().toISOString().slice(0, 10));
+    // Pieza 3.3 — cargar lista de podólogos publicados antes de decidir paso inicial
+    (async function init() {
+      try {
+        const res = await fetch(`${RELAY_URL}/api/podologos/${CLINICA_ID}`);
+        const data = await res.json();
+        podologos = (data && data.ok) ? (data.podologos || []) : [];
+      } catch (_) { podologos = []; }
+
+      multiPodologo = podologos.length >= 2;
+
+      if (multiPodologo) {
+        // Multi-podólogo: indicador 3 pasos + step-0 + botón "Cambiar podólogo"
+        inyectarTercerDot();
+        renderPodologoGrid();
+        document.getElementById('back-to-pod').style.display = 'inline-flex';
+        showStep(0);
+      } else {
+        // 0 o 1 podólogo publicado: flujo clásico
+        if (podologos.length === 1) podologoSeleccionado = podologos[0].id;
+        showStep(1);
+        cargarSemana(new Date().toISOString().slice(0, 10));
+      }
+    })();
   </script>
 </body>
 </html>

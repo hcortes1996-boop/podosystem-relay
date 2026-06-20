@@ -30,35 +30,87 @@ const auth   = require('../middleware/auth');
 //   }
 // }
 router.put('/sync-agenda', auth, (req, res) => {
-  const { config, citasOcupadas } = req.body;
+  const { config, citasOcupadas, podologos, citasOcupadasPorPodologo } = req.body;
   if (!config) return res.status(400).json({ ok: false, error: 'Falta config' });
 
-  // Guardar config
+  // Guardar config (sin cambios)
   req.db.prepare(`
     INSERT INTO agenda_config (clinicaId, config, updatedAt)
     VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     ON CONFLICT(clinicaId) DO UPDATE SET config=excluded.config, updatedAt=excluded.updatedAt
   `).run(req.clinicaId, JSON.stringify(config));
 
-  // Reemplazar citas ocupadas (solo las del rango publicado)
+  // Reemplazar citas_ocupadas (agregadas, sin podologoId — legacy)
   req.db.prepare('DELETE FROM citas_ocupadas WHERE clinicaId = ?').run(req.clinicaId);
-  const ins = req.db.prepare('INSERT OR IGNORE INTO citas_ocupadas (clinicaId, fecha, hora, duracion) VALUES (?,?,?,?)');
-  const insertAll = req.db.transaction((citas) => {
+  const insOcupadas = req.db.prepare('INSERT OR IGNORE INTO citas_ocupadas (clinicaId, fecha, hora, duracion) VALUES (?,?,?,?)');
+  const insertAllOcupadas = req.db.transaction((citas) => {
     for (const c of (citas || [])) {
-      if (c.fecha && c.hora) ins.run(req.clinicaId, c.fecha, c.hora, c.duracion || 30);
+      if (c.fecha && c.hora) insOcupadas.run(req.clinicaId, c.fecha, c.hora, c.duracion || 30);
     }
-    // BUGFIX: Re-bloquear reservas web pendientes para que el sync de PodoSystem
-    // no libere slots que ya tienen una reserva online sin confirmar todavía.
-    const pendientes = req.db.prepare(
-      `SELECT fecha, hora, duracion FROM reservas WHERE clinicaId = ? AND estado = 'pendiente_pc'`
+    // BUGFIX: Re-bloquear reservas web pendientes SIN podologoId (legacy)
+    const pendientesAgregadas = req.db.prepare(
+      `SELECT fecha, hora, duracion FROM reservas WHERE clinicaId = ? AND estado = 'pendiente_pc' AND podologoId IS NULL`
     ).all(req.clinicaId);
-    for (const r of pendientes) {
-      if (r.fecha && r.hora) ins.run(req.clinicaId, r.fecha, r.hora, r.duracion || 30);
+    for (const r of pendientesAgregadas) {
+      if (r.fecha && r.hora) insOcupadas.run(req.clinicaId, r.fecha, r.hora, r.duracion || 30);
     }
   });
-  insertAll(citasOcupadas || []);
+  insertAllOcupadas(citasOcupadas || []);
 
-  res.json({ ok: true, citasSincronizadas: (citasOcupadas || []).length });
+  // Pieza 3.3 — Upsert podologos_publicos si viene en el payload
+  if (Array.isArray(podologos)) {
+    const insPod = req.db.prepare(`
+      INSERT INTO podologos_publicos (clinicaId, id, nombre, apellido, color, orden, descripcionPublica, horarioPublico, visibleEnWeb, activo, updatedAt)
+      VALUES (?,?,?,?,?,?,?,?,?,?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    `);
+    const upsertPodologos = req.db.transaction((arr) => {
+      req.db.prepare('DELETE FROM podologos_publicos WHERE clinicaId = ?').run(req.clinicaId);
+      for (const p of arr) {
+        if (!p.id || !p.nombre) continue;
+        insPod.run(
+          req.clinicaId,
+          p.id,
+          p.nombre,
+          p.apellido || null,
+          p.color || '#1E3A5F',
+          Number.isInteger(p.orden) ? p.orden : 0,
+          p.descripcionPublica || null,
+          p.horarioPublico ? JSON.stringify(p.horarioPublico) : null,
+          p.visibleEnWeb === false ? 0 : 1,
+          p.activo === false ? 0 : 1
+        );
+      }
+    });
+    upsertPodologos(podologos);
+  }
+
+  // Pieza 3.3 — Reemplazar citas_podologo si viene en el payload
+  if (Array.isArray(citasOcupadasPorPodologo)) {
+    const insPodCita = req.db.prepare('INSERT OR IGNORE INTO citas_podologo (clinicaId, fecha, hora, duracion, podologoId) VALUES (?,?,?,?,?)');
+    const insertAllPodCitas = req.db.transaction((citas) => {
+      req.db.prepare('DELETE FROM citas_podologo WHERE clinicaId = ?').run(req.clinicaId);
+      for (const c of citas) {
+        if (c.fecha && c.hora && c.podologoId) {
+          insPodCita.run(req.clinicaId, c.fecha, c.hora, c.duracion || 30, c.podologoId);
+        }
+      }
+      // Re-bloquear reservas web pendientes CON podologoId (multi-podólogo)
+      const pendientesPodologo = req.db.prepare(
+        `SELECT fecha, hora, duracion, podologoId FROM reservas WHERE clinicaId = ? AND estado = 'pendiente_pc' AND podologoId IS NOT NULL`
+      ).all(req.clinicaId);
+      for (const r of pendientesPodologo) {
+        if (r.fecha && r.hora) insPodCita.run(req.clinicaId, r.fecha, r.hora, r.duracion || 30, r.podologoId);
+      }
+    });
+    insertAllPodCitas(citasOcupadasPorPodologo);
+  }
+
+  res.json({
+    ok: true,
+    citasSincronizadas: (citasOcupadas || []).length,
+    podologosSincronizados: Array.isArray(podologos) ? podologos.length : 0,
+    citasPodologoSincronizadas: Array.isArray(citasOcupadasPorPodologo) ? citasOcupadasPorPodologo.length : 0
+  });
 });
 
 /* ── Snapshot completo de agenda (para APK en modo remoto) ─────── */
@@ -257,6 +309,70 @@ function slotLibres(slots, ocupadas, duracion) {
   });
 }
 
+/* ── Pieza 3.3 — Helpers multi-podólogo ───────────────────────── */
+
+/**
+ * Lee el horario del podólogo. Si NULL/vacío, fallback al horario global de
+ * agenda_config. Devuelve null si el podólogo no existe o no es visible.
+ */
+function getHorarioPodologo(db, clinicaId, podologoId) {
+  const pod = db.prepare(`
+    SELECT horarioPublico FROM podologos_publicos
+    WHERE clinicaId = ? AND id = ? AND visibleEnWeb = 1 AND activo = 1
+  `).get(clinicaId, podologoId);
+  if (!pod) return null;
+  if (pod.horarioPublico) {
+    try { return JSON.parse(pod.horarioPublico); } catch (_) {}
+  }
+  // Fallback al horario global de la clínica
+  const cfgRow = db.prepare('SELECT config FROM agenda_config WHERE clinicaId = ?').get(clinicaId);
+  if (!cfgRow) return {};
+  try { return JSON.parse(cfgRow.config).horario || {}; } catch (_) { return {}; }
+}
+
+/**
+ * Devuelve las ocupaciones combinadas de un podólogo en una fecha:
+ * - citas_ocupadas[clinicaId, fecha] → bloquean a todos
+ * - citas_podologo[clinicaId, podologoId, fecha] → solo a este
+ */
+function ocupadasPodologo(db, clinicaId, podologoId, fecha) {
+  const agregadas = db.prepare(
+    'SELECT hora, duracion FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ?'
+  ).all(clinicaId, fecha);
+  const especificas = db.prepare(
+    'SELECT hora, duracion FROM citas_podologo WHERE clinicaId = ? AND podologoId = ? AND fecha = ?'
+  ).all(clinicaId, podologoId, fecha);
+  return [...agregadas, ...especificas];
+}
+
+/**
+ * ¿Está el slot (fecha+hora) libre para este podólogo concreto?
+ * Considera: bloqueos, horario del podólogo (con fallback global), ocupaciones.
+ */
+function isSlotLibreParaPodologo(db, clinicaId, podologoId, fecha, hora, duracionSlot) {
+  // 1. Día bloqueado (vacaciones, festivos)
+  const bloqueada = db.prepare('SELECT 1 FROM bloqueos WHERE clinicaId = ? AND fecha = ?').get(clinicaId, fecha);
+  if (bloqueada) return false;
+
+  // 2. Horario del podólogo (con fallback a agenda_config.horario)
+  const horario = getHorarioPodologo(db, clinicaId, podologoId);
+  if (!horario) return false;
+
+  // 3. Slot dentro del horario del día
+  const d = new Date(fecha + 'T12:00:00Z');
+  const diaSemana = String(d.getUTCDay());
+  const franjas = horario[diaSemana] || [];
+  if (!franjas.length) return false;
+
+  const todosSlots = generarSlots(franjas, duracionSlot);
+  if (!todosSlots.includes(hora)) return false;
+
+  // 4. No ocupado (citas_ocupadas agregada + citas_podologo de este podólogo)
+  const ocupadas = ocupadasPodologo(db, clinicaId, podologoId, fecha);
+  const libres = slotLibres([hora], ocupadas, duracionSlot);
+  return libres.includes(hora);
+}
+
 /* ── Helper: sumar N días hábiles según horario ───────────────── */
 function sumarDiasHabiles(base, nDias, horario) {
   if (!nDias || nDias <= 0) return new Date(base);
@@ -373,9 +489,110 @@ router.get('/slots/:clinicaId/:fecha', (req, res) => {
   res.json({ ok: true, fecha, slots: libres, duracionSlot });
 });
 
+/* ── Pieza 3.3 — Slots libres de un día y un podólogo (público) ── */
+router.get('/slots/:clinicaId/:fecha/:podologoId', (req, res) => {
+  const { clinicaId, fecha, podologoId } = req.params;
+
+  const clinica = req.db
+    .prepare('SELECT id FROM clinicas WHERE id = ? AND activa = 1')
+    .get(clinicaId);
+  if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+    return res.status(400).json({ ok: false, error: 'Formato de fecha inválido' });
+  }
+
+  const bloqueada = req.db
+    .prepare('SELECT 1 FROM bloqueos WHERE clinicaId = ? AND fecha = ?')
+    .get(clinicaId, fecha);
+  if (bloqueada) return res.json({ ok: true, slots: [], motivo: 'bloqueada' });
+
+  const horario = getHorarioPodologo(req.db, clinicaId, podologoId);
+  if (!horario) return res.status(404).json({ ok: false, error: 'Podólogo no encontrado o no visible' });
+
+  const cfgRow = req.db.prepare('SELECT config FROM agenda_config WHERE clinicaId = ?').get(clinicaId);
+  const duracionSlot = cfgRow ? (JSON.parse(cfgRow.config).duracionSlot || 30) : 30;
+
+  const d = new Date(fecha + 'T12:00:00Z');
+  const diaSemana = String(d.getUTCDay());
+  const franjas = horario[diaSemana] || [];
+
+  const todosSlots = generarSlots(franjas, duracionSlot);
+  const ocupadas = ocupadasPodologo(req.db, clinicaId, podologoId, fecha);
+  const libres = slotLibres(todosSlots, ocupadas, duracionSlot);
+
+  res.json({ ok: true, fecha, slots: libres, duracionSlot });
+});
+
+/* ── Pieza 3.3 — Lista pública de podólogos visibles ──────────── */
+router.get('/podologos/:clinicaId', (req, res) => {
+  try {
+    const clinica = req.db
+      .prepare('SELECT id FROM clinicas WHERE id = ? AND activa = 1')
+      .get(req.params.clinicaId);
+    // No 404 si la clínica no existe — devolvemos lista vacía para que la web
+    // siga funcionando en modo agregado.
+    if (!clinica) return res.json({ ok: true, podologos: [] });
+
+    const podologos = req.db.prepare(`
+      SELECT id, nombre, apellido, color, descripcionPublica
+      FROM podologos_publicos
+      WHERE clinicaId = ? AND visibleEnWeb = 1 AND activo = 1
+      ORDER BY orden ASC, nombre ASC
+    `).all(req.params.clinicaId);
+
+    res.json({ ok: true, podologos });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+/* ── Pieza 3.3 — Podólogos disponibles en un slot concreto (público) ── */
+// Usado cuando paciente eligió "Cualquier disponible" y hace click en hora:
+// - 0 disponibles → frontend muestra "ya no disponible"
+// - 1 disponible → frontend autoselecciona y avanza
+// - 2+ → frontend abre mini-modal de elección
+router.get('/podologos-disponibles/:clinicaId/:fecha/:hora', (req, res) => {
+  try {
+    const { clinicaId, fecha, hora } = req.params;
+
+    const clinica = req.db
+      .prepare('SELECT id FROM clinicas WHERE id = ? AND activa = 1')
+      .get(clinicaId);
+    if (!clinica) return res.json({ ok: true, podologos: [] });
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+      return res.status(400).json({ ok: false, error: 'Formato de fecha inválido' });
+    }
+    if (!/^\d{2}:\d{2}$/.test(hora)) {
+      return res.status(400).json({ ok: false, error: 'Formato de hora inválido' });
+    }
+
+    const cfgRow = req.db.prepare('SELECT config FROM agenda_config WHERE clinicaId = ?').get(clinicaId);
+    if (!cfgRow) return res.json({ ok: true, podologos: [] });
+    let duracionSlot = 30;
+    try { duracionSlot = JSON.parse(cfgRow.config).duracionSlot || 30; } catch (_) {}
+
+    const podologos = req.db.prepare(`
+      SELECT id, nombre, apellido, color, descripcionPublica
+      FROM podologos_publicos
+      WHERE clinicaId = ? AND visibleEnWeb = 1 AND activo = 1
+      ORDER BY orden ASC, nombre ASC
+    `).all(clinicaId);
+
+    const disponibles = podologos.filter(p =>
+      isSlotLibreParaPodologo(req.db, clinicaId, p.id, fecha, hora, duracionSlot)
+    );
+
+    res.json({ ok: true, podologos: disponibles });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 /* ── Reservar slot directamente (público, atómico) ────────────── */
 router.post('/reservar-slot', (req, res) => {
-  const { clinicaId, fecha, hora, nombre, telefono, email, motivo, observaciones } = req.body;
+  const { clinicaId, fecha, hora, nombre, telefono, email, motivo, observaciones, podologoId } = req.body;
 
   if (!clinicaId || !fecha || !hora || !nombre?.trim() || !telefono?.trim()) {
     return res.status(400).json({ ok: false, error: 'Faltan campos obligatorios' });
@@ -386,38 +603,64 @@ router.post('/reservar-slot', (req, res) => {
     .get(clinicaId);
   if (!clinica) return res.status(400).json({ ok: false, error: 'Clínica no encontrada' });
 
+  // Pieza 3.3 — si viene podologoId, validar que existe + visible + activo
+  if (podologoId) {
+    const pod = req.db.prepare(`
+      SELECT id FROM podologos_publicos
+      WHERE clinicaId = ? AND id = ? AND visibleEnWeb = 1 AND activo = 1
+    `).get(clinicaId, podologoId);
+    if (!pod) return res.status(400).json({ ok: false, error: 'Podólogo no disponible' });
+  }
+
   // Bloqueo atómico: verificar y reservar en una sola transacción
   const { genId } = require('../db');
   const id = 'res_' + genId(10);
 
   try {
     const resultado = req.db.transaction(() => {
-      // Comprobar que el slot sigue libre (doble check: citas_ocupadas + reservas pendientes)
-      // Solo bloqueamos por reservas 'pendiente_pc': una reserva 'sincronizada' ya fue
-      // procesada por PodoSystem y su slot se gestiona exclusivamente vía citas_ocupadas.
-      // Si la cita local fue eliminada, el sync la quitó de citas_ocupadas → slot libre.
-      const ocupado = req.db
+      // Verificar slot libre:
+      // - citas_ocupadas → bloquea siempre (slot agregado para todos)
+      // - citas_podologo del mismo podologoId → bloquea si reserva específica
+      // - reservas 'pendiente_pc' → doble check
+      let ocupado = req.db
         .prepare('SELECT 1 FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ? AND hora = ?')
-        .get(clinicaId, fecha, hora)
-        || req.db
-          .prepare(`SELECT 1 FROM reservas WHERE clinicaId = ? AND fecha = ? AND hora = ? AND estado = 'pendiente_pc'`)
-          .get(clinicaId, fecha, hora);
+        .get(clinicaId, fecha, hora);
+      if (!ocupado && podologoId) {
+        ocupado = req.db
+          .prepare('SELECT 1 FROM citas_podologo WHERE clinicaId = ? AND podologoId = ? AND fecha = ? AND hora = ?')
+          .get(clinicaId, podologoId, fecha, hora);
+      }
+      if (!ocupado) {
+        // Reserva pendiente del mismo podologoId, o agregada (legacy) que bloquea a todos
+        ocupado = req.db
+          .prepare(`SELECT 1 FROM reservas
+                    WHERE clinicaId = ? AND fecha = ? AND hora = ? AND estado = 'pendiente_pc'
+                    AND (podologoId IS NULL OR podologoId = ?)`)
+          .get(clinicaId, fecha, hora, podologoId || null);
+      }
       if (ocupado) return null;
 
       // Obtener duración del slot de la config
       const cfgRow = req.db.prepare('SELECT config FROM agenda_config WHERE clinicaId = ?').get(clinicaId);
       const duracion = cfgRow ? (JSON.parse(cfgRow.config).duracionSlot || 30) : 30;
 
-      // Bloquear el slot inmediatamente
-      req.db.prepare('INSERT OR IGNORE INTO citas_ocupadas (clinicaId, fecha, hora, duracion) VALUES (?,?,?,?)')
-        .run(clinicaId, fecha, hora, duracion);
+      // Bloquear el slot:
+      // - Si podologoId → citas_podologo (otros podólogos siguen libres en ese slot)
+      // - Si no → citas_ocupadas (legacy agregada, bloquea para todos)
+      if (podologoId) {
+        req.db.prepare('INSERT OR IGNORE INTO citas_podologo (clinicaId, fecha, hora, duracion, podologoId) VALUES (?,?,?,?,?)')
+          .run(clinicaId, fecha, hora, duracion, podologoId);
+      } else {
+        req.db.prepare('INSERT OR IGNORE INTO citas_ocupadas (clinicaId, fecha, hora, duracion) VALUES (?,?,?,?)')
+          .run(clinicaId, fecha, hora, duracion);
+      }
 
-      // Crear la reserva
+      // Crear la reserva con podologoId (nullable)
       req.db.prepare(`
-        INSERT INTO reservas (id, clinicaId, fecha, hora, duracion, nombre, telefono, email, motivo, observaciones)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
+        INSERT INTO reservas (id, clinicaId, fecha, hora, duracion, nombre, telefono, email, motivo, observaciones, podologoId)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?)
       `).run(id, clinicaId, fecha, hora, duracion, nombre.trim(), telefono.trim(),
-        email?.trim() || null, motivo || null, observaciones?.trim() || null);
+        email?.trim() || null, motivo || null, observaciones?.trim() || null, podologoId || null);
 
       return { id, duracion };
     })();
@@ -441,6 +684,10 @@ router.post('/reservar-slot', (req, res) => {
 /* ── Vista semanal con estado de slots (público) ──────────────── */
 // GET /api/semana/:clinicaId?semana=YYYY-MM-DD
 // Returns full week slot grid with libre/ocupado status
+//
+// Pieza 3.3 — Si hay podólogos publicados, modo agregado calcula slot libre
+// como "al menos 1 podólogo lo tiene libre". Sin podólogos publicados,
+// comportamiento legacy (solo citas_ocupadas).
 router.get('/semana/:clinicaId', (req, res) => {
   const clinica = req.db
     .prepare('SELECT id FROM clinicas WHERE id = ? AND activa = 1')
@@ -454,6 +701,13 @@ router.get('/semana/:clinicaId', (req, res) => {
 
   const cfg = JSON.parse(row.config);
   const { duracionSlot = 30, diasMin = 1, diasMax = 14, horario = {} } = cfg;
+
+  // Pieza 3.3 — cargar podólogos publicados (si los hay, modo agregado considera unión)
+  const podologosPub = req.db.prepare(`
+    SELECT id, horarioPublico FROM podologos_publicos
+    WHERE clinicaId = ? AND visibleEnWeb = 1 AND activo = 1
+  `).all(req.params.clinicaId);
+  const tienePodologos = podologosPub.length > 0;
 
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
 
@@ -496,12 +750,23 @@ router.get('/semana/:clinicaId', (req, res) => {
     if (franjas.length > 0) {
       const todosSlots = generarSlots(franjas, duracionSlot);
       if (enVentana && !bloqueada) {
-        const ocupadas = req.db
-          .prepare('SELECT hora, duracion FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ?')
-          .all(req.params.clinicaId, fechaStr);
-        const libresArray = slotLibres(todosSlots, ocupadas, duracionSlot);
-        const libresSet = new Set(libresArray);
-        slots = todosSlots.map(hora => ({ hora, libre: libresSet.has(hora) }));
+        if (tienePodologos) {
+          // Pieza 3.3 — slot libre = al menos 1 podólogo visible lo tiene libre
+          slots = todosSlots.map(hora => {
+            const libre = podologosPub.some(p =>
+              isSlotLibreParaPodologo(req.db, req.params.clinicaId, p.id, fechaStr, hora, duracionSlot)
+            );
+            return { hora, libre };
+          });
+        } else {
+          // Legacy: solo mira citas_ocupadas
+          const ocupadas = req.db
+            .prepare('SELECT hora, duracion FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ?')
+            .all(req.params.clinicaId, fechaStr);
+          const libresArray = slotLibres(todosSlots, ocupadas, duracionSlot);
+          const libresSet = new Set(libresArray);
+          slots = todosSlots.map(hora => ({ hora, libre: libresSet.has(hora) }));
+        }
       } else {
         // Día laboral pero fuera de ventana o bloqueado → todo ocupado/no disponible
         slots = todosSlots.map(hora => ({ hora, libre: false, motivo: bloqueada ? 'bloqueado' : 'fuera_ventana' }));
@@ -525,6 +790,83 @@ router.get('/semana/:clinicaId', (req, res) => {
     ok: true,
     dias,
     duracionSlot,
+    semanaInicio: semanaInicio.toISOString().slice(0, 10),
+    ventanaInicio: fechaInicio.toISOString().slice(0, 10),
+    ventanaFin: fechaFin.toISOString().slice(0, 10)
+  });
+});
+
+/* ── Pieza 3.3 — Vista semanal por podólogo (público) ─────────── */
+// Mismo formato que /api/semana/:clinicaId pero filtrando por podologoId.
+router.get('/semana/:clinicaId/:podologoId', (req, res) => {
+  const { clinicaId, podologoId } = req.params;
+
+  const clinica = req.db
+    .prepare('SELECT id FROM clinicas WHERE id = ? AND activa = 1')
+    .get(clinicaId);
+  if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
+
+  const horario = getHorarioPodologo(req.db, clinicaId, podologoId);
+  if (!horario) return res.status(404).json({ ok: false, error: 'Podólogo no encontrado o no visible' });
+
+  const row = req.db
+    .prepare('SELECT config FROM agenda_config WHERE clinicaId = ?')
+    .get(clinicaId);
+  if (!row) return res.json({ ok: true, dias: [], duracionSlot: 30, semanaInicio: null });
+
+  const cfg = JSON.parse(row.config);
+  const { duracionSlot = 30, diasMin = 1, diasMax = 14 } = cfg;
+
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const fechaInicio = diasMin > 0 ? sumarDiasHabiles(hoy, diasMin, horario) : new Date(hoy);
+  const fechaFin    = sumarDiasHabiles(hoy, diasMax, horario);
+  fechaInicio.setHours(12, 0, 0, 0);
+  fechaFin.setHours(12, 0, 0, 0);
+
+  let semanaInicio = new Date(fechaInicio);
+  if (req.query.desde && /^\d{4}-\d{2}-\d{2}$/.test(req.query.desde)) {
+    semanaInicio = new Date(req.query.desde + 'T12:00:00Z');
+  }
+  semanaInicio.setHours(12, 0, 0, 0);
+
+  const NOMBRES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+  const dias = [];
+
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(semanaInicio);
+    d.setDate(semanaInicio.getDate() + i);
+    d.setHours(12, 0, 0, 0);
+    const fechaStr = d.toISOString().slice(0, 10);
+    const diaSemana = String(d.getDay());
+    const franjas = horario[diaSemana] || [];
+
+    const enVentana = d >= fechaInicio && d <= fechaFin;
+    const bloqueada = !!req.db
+      .prepare('SELECT 1 FROM bloqueos WHERE clinicaId = ? AND fecha = ?')
+      .get(clinicaId, fechaStr);
+
+    let slots = [];
+    if (franjas.length > 0) {
+      const todosSlots = generarSlots(franjas, duracionSlot);
+      if (enVentana && !bloqueada) {
+        const ocupadas = ocupadasPodologo(req.db, clinicaId, podologoId, fechaStr);
+        const libresArray = slotLibres(todosSlots, ocupadas, duracionSlot);
+        const libresSet = new Set(libresArray);
+        slots = todosSlots.map(hora => ({ hora, libre: libresSet.has(hora) }));
+      } else {
+        slots = todosSlots.map(hora => ({ hora, libre: false, motivo: bloqueada ? 'bloqueado' : 'fuera_ventana' }));
+      }
+    }
+
+    dias.push({
+      fecha: fechaStr, nombre: NOMBRES[d.getDay()],
+      dia: d.getDate(), mes: d.getMonth() + 1, diaSemana,
+      trabajado: franjas.length > 0, enVentana, bloqueada, slots
+    });
+  }
+
+  res.json({
+    ok: true, dias, duracionSlot,
     semanaInicio: semanaInicio.toISOString().slice(0, 10),
     ventanaInicio: fechaInicio.toISOString().slice(0, 10),
     ventanaFin: fechaFin.toISOString().slice(0, 10)
