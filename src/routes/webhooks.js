@@ -1,6 +1,18 @@
 /**
  * webhooks.js — Handler de eventos LemonSqueezy
  *
+ * ⚠️ ESTADO (Pieza 5.0, 26/06/2026): LemonSqueezy denego la tienda online
+ * sin razonamiento. Plan B: integrar Stripe en una futura pieza. Este
+ * archivo queda como referencia (patron de webhook idempotente + alta
+ * completa licencia+relay+Netlify) y como fallback si LS se reactiva.
+ *
+ * Por ahora el alta de licencias se hace MANUAL desde el panel admin
+ * (POST /api/licencias o POST /api/nuevo-cliente con plan en body).
+ *
+ * Cuando llegue Stripe: crear webhooks-stripe.js siguiendo este mismo
+ * patron (verificar firma + idempotencia subscriptionId + INSERT con plan
+ * desde metadata + INSERT clinica relay + deploy Netlify async).
+ *
  * Montado en /api/webhooks desde index.js con express.raw() para
  * poder verificar la firma HMAC-SHA256 sobre el cuerpo sin parsear.
  *
@@ -137,10 +149,13 @@ async function handleOrderCreated(db, { attrs, customData, subscriptionId }) {
   const licId      = genId(12);
   const licenseKey = genLicenseKey();
   const notas      = [plan, colegiado ? `Colegiado: ${colegiado}` : ''].filter(Boolean).join(' | ');
+  // Pieza 5.0 — plan tambien en columna dedicada (default 'clinica' si valor desconocido)
+  const PLANES_VALIDOS = ['basico', 'clinica', 'red'];
+  const planFinal      = PLANES_VALIDOS.includes(plan) ? plan : 'clinica';
   db.prepare(`
-    INSERT INTO licencias (id, licenseKey, clienteNombre, clienteEmail, estado, fuente, suscripcionId, notas)
-    VALUES (?, ?, ?, ?, 'active', 'lemonsqueezy', ?, ?)
-  `).run(licId, licenseKey, clienteNombre, clienteEmail, subscriptionId || null, notas);
+    INSERT INTO licencias (id, licenseKey, clienteNombre, clienteEmail, estado, fuente, suscripcionId, notas, plan)
+    VALUES (?, ?, ?, ?, 'active', 'lemonsqueezy', ?, ?, ?)
+  `).run(licId, licenseKey, clienteNombre, clienteEmail, subscriptionId || null, notas, planFinal);
 
   // 2. Clínica relay
   const clinicaId = genId(10);

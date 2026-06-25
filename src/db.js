@@ -200,6 +200,9 @@ function initDB() {
   try { db.exec('ALTER TABLE licencias ADD COLUMN suscripcionId TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE licencias ADD COLUMN max_podologos INTEGER NOT NULL DEFAULT 1'); } catch (_) {}
   try { db.exec('ALTER TABLE licencias ADD COLUMN plan_extra INTEGER NOT NULL DEFAULT 0'); } catch (_) {}
+  // Pieza 5.0 — Plan determina las features del cliente (basico|clinica|red).
+  // Default 'clinica' por ser la mayoría de licencias actuales en BD.
+  try { db.exec("ALTER TABLE licencias ADD COLUMN plan TEXT NOT NULL DEFAULT 'clinica'"); } catch (_) {}
   // v1.9.1+ — Código de activación de un solo uso para citas web
   try { db.exec('ALTER TABLE clinicas ADD COLUMN activation_code TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE clinicas ADD COLUMN activation_code_used INTEGER DEFAULT 0'); } catch (_) {}

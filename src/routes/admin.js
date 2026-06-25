@@ -87,7 +87,9 @@ router.post('/api/licencias/verificar', (req, res) => {
       .run(new Date().toISOString(), lic.id);
   }
   const updated = req.db.prepare('SELECT * FROM licencias WHERE id=?').get(lic.id);
-  res.json({ ok: true, estado: updated.estado });
+  // Pieza 5.0 — devolver plan para que PodoSystem cliente determine features
+  // sin depender de plan.json bundled. Default 'clinica' por ALTER TABLE.
+  res.json({ ok: true, estado: updated.estado, plan: updated.plan || 'clinica' });
 });
 
 // ── API (requiere ADMIN_TOKEN) ────────────────────────────────────────────────
@@ -121,25 +123,28 @@ router.get('/api/licencias', authAdmin, (req, res) => {
 });
 
 router.post('/api/licencias', authAdmin, (req, res) => {
-  const { clienteNombre, clienteEmail, notas } = req.body;
+  const { clienteNombre, clienteEmail, notas, plan } = req.body;
   if (!clienteNombre?.trim() || !clienteEmail?.trim()) {
     return res.status(400).json({ ok: false, error: 'clienteNombre y clienteEmail son obligatorios' });
   }
+  // Pieza 5.0 — validar plan (whitelist) con default 'clinica'
+  const PLANES_VALIDOS = ['basico', 'clinica', 'red'];
+  const planFinal = PLANES_VALIDOS.includes(plan) ? plan : 'clinica';
   const id         = genId(12);
   const licenseKey = genLicenseKey();
   req.db.prepare(`
-    INSERT INTO licencias (id, licenseKey, clienteNombre, clienteEmail, notas, estado)
-    VALUES (?, ?, ?, ?, ?, 'active')
-  `).run(id, licenseKey, clienteNombre.trim(), clienteEmail.trim(), notas || '');
+    INSERT INTO licencias (id, licenseKey, clienteNombre, clienteEmail, notas, estado, plan)
+    VALUES (?, ?, ?, ?, ?, 'active', ?)
+  `).run(id, licenseKey, clienteNombre.trim(), clienteEmail.trim(), notas || '', planFinal);
 
-  res.status(201).json({ ok: true, id, licenseKey });
+  res.status(201).json({ ok: true, id, licenseKey, plan: planFinal });
 });
 
 router.put('/api/licencias/:id', authAdmin, (req, res) => {
   const { id } = req.params;
   const campos  = ['clienteNombre','clienteEmail','clinicaId','hardwareId','instanceId',
                    'estado','activadaEn','ultimaValidacion','proximaRenovacion','notas',
-                   'fuente','suscripcionId','max_podologos','plan_extra'];
+                   'fuente','suscripcionId','max_podologos','plan_extra','plan'];
   const updates = [];
   const vals    = [];
   for (const c of campos) {
@@ -200,18 +205,21 @@ router.delete('/api/clinicas/:id', authAdmin, (req, res) => {
 
 // Flujo completo: crear licencia + clínica relay + despliegue Netlify + borrador email
 router.post('/api/nuevo-cliente', authAdmin, async (req, res) => {
-  const { clienteNombre, clienteEmail, clinicaNombre, clinicaTelefono = '', clinicaCiudad = '', clinicaDireccion = '', clinicaLogoUrl = '' } = req.body;
+  const { clienteNombre, clienteEmail, clinicaNombre, clinicaTelefono = '', clinicaCiudad = '', clinicaDireccion = '', clinicaLogoUrl = '', plan } = req.body;
   if (!clienteNombre?.trim() || !clienteEmail?.trim() || !clinicaNombre?.trim()) {
     return res.status(400).json({ ok: false, error: 'clienteNombre, clienteEmail y clinicaNombre son obligatorios' });
   }
+  // Pieza 5.0 — validar plan (whitelist) con default 'clinica'
+  const PLANES_VALIDOS = ['basico', 'clinica', 'red'];
+  const planFinal = PLANES_VALIDOS.includes(plan) ? plan : 'clinica';
 
   // 1. Crear licencia
   const licId      = genId(12);
   const licenseKey = genLicenseKey();
   req.db.prepare(`
-    INSERT INTO licencias (id, licenseKey, clienteNombre, clienteEmail, estado)
-    VALUES (?, ?, ?, ?, 'active')
-  `).run(licId, licenseKey, clienteNombre.trim(), clienteEmail.trim());
+    INSERT INTO licencias (id, licenseKey, clienteNombre, clienteEmail, estado, plan)
+    VALUES (?, ?, ?, ?, 'active', ?)
+  `).run(licId, licenseKey, clienteNombre.trim(), clienteEmail.trim(), planFinal);
 
   // 2. Crear clínica relay
   const clinicaId = genId(10);
