@@ -219,7 +219,60 @@ function initDB() {
   // v2.2+ — Multi-podólogo (Plan Red web)
   try { db.exec('ALTER TABLE reservas ADD COLUMN podologoId TEXT'); } catch (_) {}
 
+  // Pieza 5.0 (datafix automatico) — extraer plan del campo notas para
+  // licencias legacy (LemonSqueezy) que tenian "<plan> | Colegiado: NNNN".
+  // Idempotente: solo actualiza filas donde plan != primer token de notas.
+  // Licencias con notas vacias o irregulares quedan en default 'clinica'.
+  migrateLicenciasPlan(db, { silencioso: true });
+
   return db;
+}
+
+/**
+ * Pieza 5.0 — Datafix licencias existentes: extraer plan del campo notas.
+ *
+ * Idempotente: re-ejecucion no toca filas ya correctas. Seguro de invocar
+ * en cada arranque del servidor (lo hace applyMigrations).
+ *
+ * Tambien expuesto en scripts/migrate-licencias-plan.js para ejecucion CLI.
+ *
+ * @param {Database} db        — instancia better-sqlite3 abierta
+ * @param {object}   opts
+ * @param {boolean}  opts.silencioso — true en arranque server (sin logs)
+ * @returns {{actualizadas:number, saltadas:number, yaCorrectas:number}}
+ */
+function migrateLicenciasPlan(db, opts = {}) {
+  const PLANES_VALIDOS = ['basico', 'clinica', 'red'];
+  const log = opts.silencioso ? () => {} : (msg) => console.log(msg);
+
+  // Verificar columna plan existe (defensivo, deberia tras ALTER previo)
+  const cols = db.prepare("PRAGMA table_info(licencias)").all();
+  if (!cols.some(c => c.name === 'plan')) return { actualizadas: 0, saltadas: 0, yaCorrectas: 0 };
+
+  const updateStmt = db.prepare('UPDATE licencias SET plan = ? WHERE id = ?');
+  const licencias  = db.prepare('SELECT id, licenseKey, clienteNombre, notas, plan FROM licencias').all();
+
+  let actualizadas = 0, saltadas = 0, yaCorrectas = 0;
+  const tx = db.transaction(() => {
+    for (const lic of licencias) {
+      const primeraToken = String(lic.notas || '').split('|')[0].trim().toLowerCase();
+      if (!PLANES_VALIDOS.includes(primeraToken)) { saltadas++; continue; }
+      if (lic.plan === primeraToken)               { yaCorrectas++; continue; }
+      updateStmt.run(primeraToken, lic.id);
+      actualizadas++;
+      log(`[migrate-licencias-plan]  ✓ ${lic.licenseKey} (${lic.clienteNombre}): plan="${lic.plan}" → "${primeraToken}"`);
+    }
+  });
+  tx();
+
+  if (!opts.silencioso) {
+    log(`[migrate-licencias-plan] Hecho. Actualizadas: ${actualizadas} | Ya correctas: ${yaCorrectas} | Saltadas: ${saltadas}`);
+  } else if (actualizadas > 0) {
+    // En modo silencioso, solo logear si hubo cambios (no spamear arranque normal)
+    console.log(`[migrate-licencias-plan] Datafix automatico: ${actualizadas} licencias actualizadas desde notas.`);
+  }
+
+  return { actualizadas, saltadas, yaCorrectas };
 }
 
 /** Genera un ID corto tipo nanoid sin dependencias ESM */
@@ -239,4 +292,4 @@ function genActivationCode(nombre) {
   return `${prefix}-${num}`;
 }
 
-module.exports = { initDB, genId, genApiKey, genActivationCode };
+module.exports = { initDB, genId, genApiKey, genActivationCode, migrateLicenciasPlan };
