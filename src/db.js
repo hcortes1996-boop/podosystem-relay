@@ -219,6 +219,51 @@ function initDB() {
   // v2.2+ — Multi-podólogo (Plan Red web)
   try { db.exec('ALTER TABLE reservas ADD COLUMN podologoId TEXT'); } catch (_) {}
 
+  // Pieza 6.0 — Recordatorios cloud (push notifications a APK fuera de red local PC).
+  // Tres tablas: tokens registrados por la APK, configuracion sincronizada del PC,
+  // log de envios para idempotencia diaria.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS expo_push_tokens (
+      id             TEXT PRIMARY KEY,
+      clinicaId      TEXT NOT NULL REFERENCES clinicas(id) ON DELETE CASCADE,
+      expoPushToken  TEXT NOT NULL,
+      platform       TEXT,
+      deviceInfo     TEXT,
+      registeredAt   TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      lastUsedAt     TEXT
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_expo_push_tokens_unique
+      ON expo_push_tokens(clinicaId, expoPushToken);
+
+    CREATE TABLE IF NOT EXISTS recordatorios_config (
+      clinicaId        TEXT PRIMARY KEY REFERENCES clinicas(id) ON DELETE CASCADE,
+      diasAntelacion   INTEGER NOT NULL DEFAULT 1,
+      recordarMismoDia INTEGER NOT NULL DEFAULT 1,
+      reglaViernes     INTEGER NOT NULL DEFAULT 1,
+      horaEnvio        INTEGER NOT NULL DEFAULT 20,
+      zonaHoraria      TEXT NOT NULL DEFAULT 'Europe/Madrid',
+      updatedAt        TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS recordatorios_sent_log (
+      id              TEXT PRIMARY KEY,
+      clinicaId       TEXT NOT NULL REFERENCES clinicas(id) ON DELETE CASCADE,
+      fechaObjetivo   TEXT NOT NULL,
+      count           INTEGER NOT NULL,
+      citasIds        TEXT,
+      sentAt          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_recordatorios_sent_log_idem
+      ON recordatorios_sent_log(clinicaId, fechaObjetivo);
+
+    CREATE TABLE IF NOT EXISTS recordatorios_sent_marks (
+      clinicaId TEXT NOT NULL,
+      citaId    TEXT NOT NULL,
+      markedAt  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY (clinicaId, citaId)
+    );
+  `);
+
   // Pieza 5.0 (datafix automatico) — extraer plan del campo notas para
   // licencias legacy (LemonSqueezy) que tenian "<plan> | Colegiado: NNNN".
   // Idempotente: solo actualiza filas donde plan != primer token de notas.

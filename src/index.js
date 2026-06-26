@@ -61,6 +61,8 @@ app.use('/api', require('./routes/clinica'));
 app.use('/api', require('./routes/bloqueos'));
 app.use('/api', require('./routes/agenda'));
 app.use('/api', require('./routes/alta'));
+// Pieza 6.0 — WhatsApp Cloud (recordatorios push notification a APK)
+app.use('/api', require('./routes/recordatorios'));
 
 // Panel de administración — montado en /admin para claridad de rutas
 app.use('/admin', require('./routes/admin'));
@@ -85,4 +87,11 @@ app.listen(PORT, () => {
   console.log(`[podosystem-relay] Base de datos: ${process.env.DB_PATH || './relay.db'}`);
   console.log(`[podosystem-relay] ADMIN_TOKEN cargado: ${process.env.ADMIN_TOKEN ? 'SI' : 'NO (usando default)'}`);
   console.log(`[podosystem-relay] REGISTRO_SECRET cargado: "${process.env.REGISTRO_SECRET || '(no definido)'}"`);
+  // Pieza 6.0 — cron recordatorios cloud (push notifications)
+  try {
+    const { iniciarCronRecordatorios } = require('./lib/cron-recordatorios');
+    iniciarCronRecordatorios(db);
+  } catch (e) {
+    console.error('[cron-recordatorios] no se pudo arrancar:', e.message);
+  }
 });
