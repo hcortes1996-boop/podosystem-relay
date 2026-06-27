@@ -262,6 +262,16 @@ function initDB() {
       markedAt  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
       PRIMARY KEY (clinicaId, citaId)
     );
+
+    -- Pieza 8.2 — Idempotencia de webhooks Stripe.
+    -- Stripe reintenta hasta 3 dias si el endpoint no responde 2xx.
+    -- Cada evento tiene event.id unico — usamos esa propiedad para skip.
+    CREATE TABLE IF NOT EXISTS webhooks_stripe_log (
+      eventId     TEXT PRIMARY KEY,
+      type        TEXT NOT NULL,
+      processedAt TEXT NOT NULL,
+      payload     TEXT
+    );
   `);
 
   // Pieza 5.0 (datafix automatico) — extraer plan del campo notas para

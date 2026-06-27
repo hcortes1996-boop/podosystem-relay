@@ -22,9 +22,12 @@ app.set('trust proxy', 1);
 // CORS abierto — necesario para el widget embebido en cualquier dominio
 app.use(cors());
 
-// Webhook LemonSqueezy — montado ANTES de express.json() para preservar el raw body
-// express.raw() deja req.body como Buffer, necesario para verificar HMAC-SHA256
-app.use('/api/webhooks', express.raw({ type: 'application/json' }), require('./routes/webhooks'));
+// Webhooks (LemonSqueezy + Stripe) — montados ANTES de express.json() para preservar el raw body.
+// express.raw() deja req.body como Buffer, necesario para verificar HMAC-SHA256 (LS) y Stripe.constructEvent.
+// Pieza 8.2: webhooks-stripe paralelo a LemonSqueezy (que queda como fallback historico).
+app.use('/api/webhooks', express.raw({ type: 'application/json' }));
+app.use('/api/webhooks', require('./routes/webhooks'));         // /api/webhooks/lemonsqueezy
+app.use('/api/webhooks', require('./routes/webhooks-stripe'));  // /api/webhooks/stripe
 
 app.use(express.json());
 
