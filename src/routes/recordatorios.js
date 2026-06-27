@@ -133,4 +133,53 @@ router.put('/recordatorios/:citaId/marcar', auth, (req, res) => {
   }
 });
 
+// ── Pieza 6.1 — Sincronizacion bidireccional de marcas PC <-> Relay ──────────
+
+// PC sube batch de marcas locales (citas enviadas desde el PC).
+// INSERT OR IGNORE preserva markedAt original si la marca ya existe.
+router.post('/recordatorios-marks-batch', auth, (req, res) => {
+  const { marks } = req.body || {};
+  if (!Array.isArray(marks)) {
+    return res.status(400).json({ ok: false, error: 'marks debe ser array' });
+  }
+  let inserted = 0;
+  let skipped  = 0;
+  const stmt = req.db.prepare(
+    "INSERT OR IGNORE INTO recordatorios_sent_marks (clinicaId, citaId, markedAt) " +
+    "VALUES (?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))"
+  );
+  for (const m of marks) {
+    if (!m || typeof m.citaId !== 'string' || !m.citaId.trim()) {
+      skipped++;
+      continue;
+    }
+    const markedAt = (typeof m.markedAt === 'string' && m.markedAt.trim()) ? m.markedAt.trim() : null;
+    try {
+      const r = stmt.run(req.clinicaId, m.citaId.trim(), markedAt);
+      if (r.changes === 1) inserted++; else skipped++;
+    } catch (_) {
+      skipped++;
+    }
+  }
+  res.json({ ok: true, inserted, skipped });
+});
+
+// PC consulta marcas remotas (las que hizo la APK desde el movil).
+// ?desde=ISO_TIMESTAMP para sync incremental (default: todas).
+router.get('/recordatorios-marks', auth, (req, res) => {
+  try {
+    const desde = (typeof req.query.desde === 'string' && req.query.desde.trim()) ? req.query.desde.trim() : null;
+    const rows = desde
+      ? req.db.prepare(
+          'SELECT citaId, markedAt FROM recordatorios_sent_marks WHERE clinicaId = ? AND markedAt >= ? ORDER BY markedAt ASC'
+        ).all(req.clinicaId, desde)
+      : req.db.prepare(
+          'SELECT citaId, markedAt FROM recordatorios_sent_marks WHERE clinicaId = ? ORDER BY markedAt ASC'
+        ).all(req.clinicaId);
+    res.json({ ok: true, marks: rows });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 module.exports = router;
