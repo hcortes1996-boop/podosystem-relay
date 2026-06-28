@@ -66,6 +66,8 @@ app.use('/api', require('./routes/agenda'));
 app.use('/api', require('./routes/alta'));
 // Pieza 6.0 — WhatsApp Cloud (recordatorios push notification a APK)
 app.use('/api', require('./routes/recordatorios'));
+// Pieza 8.3 — Stripe Checkout Sessions (POST /api/checkout/create-session)
+app.use('/api/checkout', require('./routes/checkout'));
 
 // Panel de administración — montado en /admin para claridad de rutas
 app.use('/admin', require('./routes/admin'));
