@@ -66,6 +66,46 @@ function subIdFromInvoice(invoice) {
   return s ? String(s) : null;
 }
 
+// Nombres legibles de plan para el email de bienvenida.
+const PLAN_NOMBRES = { basico: 'Básico', clinica: 'Clínica', red: 'Red' };
+
+function esc(s) {
+  return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Email HTML de bienvenida con la clave de licencia (Pieza 8.6).
+function buildEmailLicencia({ nombre, plan, licenseKey }) {
+  const planNombre = PLAN_NOMBRES[plan] || 'Clínica';
+  return `
+<div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff">
+  <div style="background:#0f2137;padding:28px 40px">
+    <p style="margin:0;font-size:20px;font-weight:800;color:#fff">Podo<span style="color:#2ecc9a">System</span></p>
+    <p style="margin:6px 0 0;font-size:13px;color:rgba(255,255,255,.5)">Tu licencia está activa</p>
+  </div>
+  <div style="padding:32px 40px">
+    <p style="margin:0 0 16px;color:#1a2a3a">Hola <strong>${esc(nombre)}</strong>,</p>
+    <p style="margin:0 0 20px;color:#1a2a3a;line-height:1.6">¡Gracias por confiar en PodoSystem! Tu suscripción al <strong>Plan ${esc(planNombre)}</strong> está activa. Aquí tienes tu clave de licencia:</p>
+    <div style="background:#f0f6ff;border:2px solid #2ecc9a;border-radius:12px;padding:24px;text-align:center;margin:0 0 24px">
+      <p style="margin:0 0 8px;font-size:12px;font-weight:700;color:#1E3A5F;text-transform:uppercase;letter-spacing:.1em">Clave de licencia</p>
+      <p style="margin:0;font-family:monospace;font-size:24px;font-weight:800;letter-spacing:.12em;color:#0f2137">${esc(licenseKey)}</p>
+    </div>
+    <p style="margin:0 0 20px;font-size:.9rem;color:#5a7080"><strong>Guarda este email</strong> — necesitarás la clave para activar el software.</p>
+    <div style="margin:0 0 24px;padding:18px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+      <p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#1e40af">Próximos pasos</p>
+      <ol style="margin:0;padding-left:20px;font-size:.9rem;color:#1e3a8a;line-height:1.8">
+        <li>Descarga PodoSystem en <a href="https://podosystem.es/demo" style="color:#2ecc9a">podosystem.es/demo</a></li>
+        <li>Instálalo en tu PC Windows</li>
+        <li>Al abrirlo verás la pantalla <strong>«Activar PodoSystem»</strong></li>
+        <li>Pega tu clave y pulsa <strong>«Activar licencia»</strong></li>
+        <li>¡Listo! Ya puedes empezar</li>
+      </ol>
+    </div>
+    <p style="margin:24px 0 0;font-size:.85rem;color:#aaa">¿Dudas? Escríbenos a <a href="mailto:soporte@podosystem.es" style="color:#2ecc9a">soporte@podosystem.es</a></p>
+    <p style="margin:16px 0 0;font-size:.85rem;color:#5a7080">Un saludo,<br>Francisco Román García · PodoSystem</p>
+  </div>
+</div>`;
+}
+
 // ── Ruta principal ───────────────────────────────────────────────────────────
 
 router.post('/stripe', async (req, res) => {
@@ -188,6 +228,16 @@ async function handleCheckoutCompleted(db, session) {
       })
       .catch(err => console.error('[webhook-stripe/checkout] Netlify fallido:', err.message));
   }
+
+  // 4. Email de bienvenida con la clave (fire-and-forget; la licencia ya esta creada,
+  //    si el email falla se loguea y el admin puede reenviar — no bloquea el webhook).
+  const { sendMail } = require('../email');
+  sendMail({
+    to:      clienteEmail,
+    subject: 'Bienvenido a PodoSystem — Tu clave de licencia',
+    html:    buildEmailLicencia({ nombre: clienteNombre, plan: planFinal, licenseKey }),
+  }).then(() => console.log(`[webhook-stripe/checkout] Email bienvenida enviado a ${clienteEmail}`))
+    .catch(err => console.error(`[webhook-stripe/checkout] Email bienvenida FALLO (licencia ya creada): ${err.message}`));
 }
 
 function handleInvoicePaid(db, invoice) {

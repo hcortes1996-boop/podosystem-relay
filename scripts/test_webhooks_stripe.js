@@ -149,6 +149,10 @@ function check(name, cond, info) {
   const db = setupDB();
   const app = setupApp(db);
   require('../src/routes/webhooks-stripe')._setStripeClient(mockStripe);
+  // Mock del envio de email: registra las llamadas (el handler hace require a call-time).
+  const emailMod = require('../src/email');
+  const mailCalls = [];
+  emailMod.sendMail = async (args) => { mailCalls.push(args); };
   const server = app.listen(0);
   await new Promise(r => server.on('listening', r));
 
@@ -270,6 +274,29 @@ function check(name, cond, info) {
       check('T11 status 200', r.status === 200);
       const lic = db.prepare("SELECT * FROM licencias WHERE suscripcionId = 'sub_011'").get();
       check('T11 sub id leido de parent.subscription_details', !!lic?.ultimaValidacion, `got ${lic?.ultimaValidacion}`);
+    }
+
+    // T12 — email de bienvenida enviado con datos correctos (Pieza 8.6)
+    {
+      mailCalls.length = 0;
+      await call(server, makeCheckoutEvent('evt_012', 'cs_012', 'sub_012', 'cliente12@test.es', 'basico'));
+      const mail = mailCalls.find(m => m.to === 'cliente12@test.es');
+      check('T12 sendMail llamado 1 vez', mailCalls.length === 1, `got ${mailCalls.length}`);
+      check('T12 to correcto', mail?.to === 'cliente12@test.es');
+      check('T12 subject correcto', mail?.subject === 'Bienvenido a PodoSystem — Tu clave de licencia', `got ${mail?.subject}`);
+      const lic = db.prepare("SELECT * FROM licencias WHERE suscripcionId = 'sub_012'").get();
+      check('T12 html contiene la licenseKey', !!lic && mail?.html?.includes(lic.licenseKey));
+      check('T12 html menciona el plan (Básico)', mail?.html?.includes('Básico'));
+    }
+
+    // T13 — la licencia se crea aunque el email falle (no rollback, no throw)
+    {
+      emailMod.sendMail = async () => { throw new Error('SMTP down simulado'); };
+      const r = await call(server, makeCheckoutEvent('evt_013', 'cs_013', 'sub_013', 'cliente13@test.es', 'clinica'));
+      check('T13 status 200 pese a email fallido', r.status === 200, `got ${r.status}`);
+      const lic = db.prepare("SELECT * FROM licencias WHERE suscripcionId = 'sub_013'").get();
+      check('T13 licencia creada aunque email falle', !!lic, `lic=${!!lic}`);
+      emailMod.sendMail = async (args) => { mailCalls.push(args); }; // restaurar mock
     }
 
   } finally {
