@@ -22,6 +22,16 @@ app.set('trust proxy', 1);
 // CORS abierto — necesario para el widget embebido en cualquier dominio
 app.use(cors());
 
+// Inicializar base de datos y adjuntarla a cada request.
+// IMPORTANTE: va ANTES de montar los webhooks — sus handlers usan req.db.
+// Si no está disponible, req.db es undefined -> db.prepare() casca fuera del
+// try/catch en un handler async -> el proceso no responde -> Railway 502 en Stripe.
+const db = initDB();
+app.use((req, _res, next) => {
+  req.db = db;
+  next();
+});
+
 // Webhooks (LemonSqueezy + Stripe) — montados ANTES de express.json() para preservar el raw body.
 // express.raw() deja req.body como Buffer, necesario para verificar HMAC-SHA256 (LS) y Stripe.constructEvent.
 // Pieza 8.2: webhooks-stripe paralelo a LemonSqueezy (que queda como fallback historico).
@@ -30,13 +40,6 @@ app.use('/api/webhooks', require('./routes/webhooks'));         // /api/webhooks
 app.use('/api/webhooks', require('./routes/webhooks-stripe'));  // /api/webhooks/stripe
 
 app.use(express.json());
-
-// Inicializar base de datos y adjuntarla a cada request
-const db = initDB();
-app.use((req, _res, next) => {
-  req.db = db;
-  next();
-});
 
 // Ruta raíz informativa
 app.get('/', (_req, res) => {
