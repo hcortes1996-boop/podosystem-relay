@@ -24,6 +24,14 @@ const Stripe   = require('stripe');
 
 const stripeClient = new Stripe('sk_test_dummy', { apiVersion: '2024-12-18.acacia' });
 
+// Mock del stripeClient del modulo: conserva webhooks.constructEvent real
+// (verificacion de firma) y sustituye subscriptions.retrieve por un stub.
+let mockSubStatus = 'active';
+const mockStripe = {
+  webhooks: stripeClient.webhooks,
+  subscriptions: { retrieve: async (id) => ({ id, status: mockSubStatus }) },
+};
+
 // ── Setup BD en memoria ────────────────────────────────────────────────────────
 function setupDB() {
   const db = new Database(':memory:');
@@ -140,6 +148,7 @@ function check(name, cond, info) {
 (async () => {
   const db = setupDB();
   const app = setupApp(db);
+  require('../src/routes/webhooks-stripe')._setStripeClient(mockStripe);
   const server = app.listen(0);
   await new Promise(r => server.on('listening', r));
 
@@ -179,14 +188,15 @@ function check(name, cond, info) {
       check('T3 estado=expired', lic?.estado === 'expired', `got ${lic?.estado}`);
     }
 
-    // T4 — invoice.payment_failed marca expired (cliente diferente)
+    // T4 — invoice.payment_failed con sub CANCELED marca expired
     {
       // crear licencia previa
       await call(server, makeCheckoutEvent('evt_004a', 'cs_004', 'sub_004', 'cliente4@test.es', 'basico'));
+      mockSubStatus = 'canceled';   // Stripe confirma sub cancelada -> SI expira
       const r = await call(server, makeInvoiceEvent('evt_004b', 'invoice.payment_failed', 'sub_004', 'cliente4@test.es'));
       check('T4 status 200', r.status === 200);
       const lic = db.prepare("SELECT * FROM licencias WHERE suscripcionId = 'sub_004'").get();
-      check('T4 estado=expired tras payment_failed', lic?.estado === 'expired');
+      check('T4 estado=expired (sub canceled)', lic?.estado === 'expired', `got ${lic?.estado}`);
     }
 
     // T5 — Firma invalida -> 400
@@ -235,6 +245,31 @@ function check(name, cond, info) {
       check('T9 status 200 (no fatal)', r.status === 200);
       const lic = db.prepare("SELECT * FROM licencias WHERE suscripcionId = 'sub_009'").get();
       check('T9 NO crea licencia sin email', !lic);
+    }
+
+    // T10 — REGRESION del incidente: payment_failed con sub ACTIVE NO expira
+    {
+      await call(server, makeCheckoutEvent('evt_010a', 'cs_010', 'sub_010', 'cliente10@test.es', 'basico'));
+      mockSubStatus = 'active';   // Stripe dice que la sub sigue activa (stale/SCA/transitorio)
+      const r = await call(server, makeInvoiceEvent('evt_010b', 'invoice.payment_failed', 'sub_010', 'cliente10@test.es'));
+      check('T10 status 200', r.status === 200);
+      const lic = db.prepare("SELECT * FROM licencias WHERE suscripcionId = 'sub_010'").get();
+      check('T10 sigue active (sub no cancelada)', lic?.estado === 'active', `got ${lic?.estado}`);
+    }
+
+    // T11 — B2: invoice con sub en parent.subscription_details (API dahlia)
+    {
+      await call(server, makeCheckoutEvent('evt_011a', 'cs_011', 'sub_011', 'cliente11@test.es', 'basico'));
+      const ev = {
+        id: 'evt_011b', object: 'event', type: 'invoice.payment_succeeded',
+        data: { object: { id: 'in_011', object: 'invoice',
+          parent: { subscription_details: { subscription: 'sub_011' } },
+          customer_email: 'cliente11@test.es' } }
+      };
+      const r = await call(server, ev);
+      check('T11 status 200', r.status === 200);
+      const lic = db.prepare("SELECT * FROM licencias WHERE suscripcionId = 'sub_011'").get();
+      check('T11 sub id leido de parent.subscription_details', !!lic?.ultimaValidacion, `got ${lic?.ultimaValidacion}`);
     }
 
   } finally {

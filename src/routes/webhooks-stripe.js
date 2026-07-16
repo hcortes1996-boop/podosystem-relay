@@ -27,11 +27,15 @@ const Stripe = require('stripe');
 const { genId, genApiKey } = require('../db');
 const { deployClientSite } = require('../netlify-deploy');
 
-const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
+let stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
   apiVersion: '2024-12-18.acacia',
 });
 
 const PLANES_VALIDOS = ['basico', 'clinica', 'red'];
+
+// Estados de suscripcion Stripe que justifican expirar la licencia.
+// active/trialing/incomplete NO expiran; past_due tampoco (grace, Stripe reintenta).
+const EXPIRE_STATUSES = new Set(['unpaid', 'canceled', 'incomplete_expired']);
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -52,6 +56,14 @@ function findLicenciaByStripe(db, suscripcionId, email) {
     ).get(email);
   }
   return null;
+}
+
+// El id de suscripcion en un invoice cambio de sitio en la API 2026-06-24.dahlia:
+// antes invoice.subscription; ahora invoice.parent.subscription_details.subscription.
+// Fallback para compatibilidad con ambas versiones.
+function subIdFromInvoice(invoice) {
+  const s = invoice.parent?.subscription_details?.subscription || invoice.subscription || null;
+  return s ? String(s) : null;
 }
 
 // ── Ruta principal ───────────────────────────────────────────────────────────
@@ -102,7 +114,7 @@ router.post('/stripe', async (req, res) => {
         handleSubscriptionDeleted(db, event.data.object);
         break;
       case 'invoice.payment_failed':
-        handleInvoiceFailed(db, event.data.object);
+        await handleInvoiceFailed(db, event.data.object);
         break;
       default:
         console.log(`[webhook-stripe] Evento no manejado: ${event.type}`);
@@ -179,7 +191,7 @@ async function handleCheckoutCompleted(db, session) {
 }
 
 function handleInvoicePaid(db, invoice) {
-  const suscripcionId = invoice.subscription ? String(invoice.subscription) : null;
+  const suscripcionId = subIdFromInvoice(invoice);
   const email         = invoice.customer_email || '';
   const lic = findLicenciaByStripe(db, suscripcionId, email);
   if (!lic) {
@@ -202,18 +214,38 @@ function handleSubscriptionDeleted(db, subscription) {
   console.log(`[webhook-stripe/sub_deleted] Licencia ${lic.id} -> expired`);
 }
 
-function handleInvoiceFailed(db, invoice) {
-  const suscripcionId = invoice.subscription ? String(invoice.subscription) : null;
+async function handleInvoiceFailed(db, invoice) {
+  const suscripcionId = subIdFromInvoice(invoice);
   const email         = invoice.customer_email || '';
   const lic = findLicenciaByStripe(db, suscripcionId, email);
   if (!lic) {
-    console.warn(`[webhook-stripe/invoice_failed] Licencia no encontrada — sub=${suscripcionId}`);
+    console.warn(`[webhook-stripe/invoice_failed] Licencia no encontrada — sub=${suscripcionId} email=${email}`);
     return;
   }
-  // Stripe ya intento 4 veces antes de mandar este evento (smart retries).
-  // Marcamos expired directamente; cliente puede actualizar tarjeta y reactivar.
+  // NO expirar a ciegas: un payment_failed puede ser un evento stale (backlog),
+  // un fallo SCA del alta o un fallo transitorio que Stripe recupera. Consultamos
+  // el estado REAL de la suscripcion como autoridad.
+  if (!suscripcionId) {
+    console.warn('[webhook-stripe/invoice_failed] Sin suscripcionId — no se expira por seguridad');
+    return;
+  }
+  let sub;
+  try {
+    sub = await stripeClient.subscriptions.retrieve(suscripcionId);
+  } catch (err) {
+    console.error(`[webhook-stripe/invoice_failed] No se pudo verificar sub ${suscripcionId}: ${err.message}`);
+    throw err; // -> 500 -> Stripe reintenta el webhook y re-evalua el estado
+  }
+  if (!EXPIRE_STATUSES.has(sub.status)) {
+    console.log(`[webhook-stripe/invoice_failed] Sub ${suscripcionId} status=${sub.status} — NO se expira (lic ${lic.id})`);
+    return;
+  }
   db.prepare('UPDATE licencias SET estado=? WHERE id=?').run('expired', lic.id);
-  console.log(`[webhook-stripe/invoice_failed] Licencia ${lic.id} -> expired (pago fallido tras reintentos)`);
+  console.log(`[webhook-stripe/invoice_failed] Licencia ${lic.id} -> expired (sub status=${sub.status})`);
 }
 
 module.exports = router;
+
+// Hook solo para tests: inyectar un stripeClient mock (subscriptions.retrieve).
+// En produccion nunca se invoca -> el cliente real queda intacto.
+module.exports._setStripeClient = (client) => { stripeClient = client; };
