@@ -161,6 +161,30 @@ router.delete('/api/licencias/:id', authAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// Test/preview del email de bienvenida (Pieza 8.6) con datos mock. Auth admin.
+// Base para 8.6.z (reenviar email). await sendMail para reportar OK/error.
+router.post('/api/test-email-bienvenida', authAdmin, async (req, res) => {
+  const to   = String(req.body?.to || '').trim();
+  const plan = ['basico','clinica','red'].includes(req.body?.plan) ? req.body.plan : 'clinica';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+    return res.status(400).json({ ok: false, error: 'Email destino invalido' });
+  }
+  try {
+    const { buildEmailLicencia } = require('./webhooks-stripe');
+    const { sendMail } = require('../email');
+    const licenseKey = genLicenseKey();
+    await sendMail({
+      to,
+      subject: 'Bienvenido a PodoSystem — Tu clave de licencia',
+      html: buildEmailLicencia({ nombre: 'Francisco Prueba', plan, licenseKey }),
+    });
+    res.json({ ok: true, to, plan, licenseKey });
+  } catch (e) {
+    console.error('[test-email-bienvenida] error:', e.message);
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 router.get('/api/clinicas', authAdmin, (req, res) => {
   const clinicas = req.db.prepare('SELECT id, nombre, webUrl, netlifyId, createdAt, activa, activation_code, activation_code_used FROM clinicas ORDER BY createdAt DESC').all();
   res.json({ ok: true, clinicas });

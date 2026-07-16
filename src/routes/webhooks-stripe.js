@@ -299,3 +299,6 @@ module.exports = router;
 // Hook solo para tests: inyectar un stripeClient mock (subscriptions.retrieve).
 // En produccion nunca se invoca -> el cliente real queda intacto.
 module.exports._setStripeClient = (client) => { stripeClient = client; };
+
+// Export para reutilizar la plantilla desde admin.js (endpoint de test/reenvio).
+module.exports.buildEmailLicencia = buildEmailLicencia;
