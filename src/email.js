@@ -1,41 +1,39 @@
 'use strict';
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-function createTransport() {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    return null;
-  }
-  return nodemailer.createTransport({
-    host:   process.env.SMTP_HOST || 'smtp.zoho.eu',
-    port:   parseInt(process.env.SMTP_PORT || '465', 10),
-    secure: process.env.SMTP_PORT !== '587',
-    auth:   { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-  });
+// Railway bloquea SMTP saliente en planes no-Pro (timeout). Usamos la API HTTP
+// de Resend. Se mantiene la firma sendMail({to,subject,html}) intacta para no
+// tocar a los que la llaman (webhook 8.6, alta.js, admin.js).
+function getClient() {
+  if (!process.env.RESEND_API_KEY) return null;
+  return new Resend(process.env.RESEND_API_KEY);
 }
 
 /**
- * Envía un email. Si DEV_EMAIL_OVERRIDE está definida, todos los envíos van a esa
- * dirección (y el asunto se prefija con [TEST]).
- * Si SMTP no está configurado, solo loguea un warning.
+ * Envía un email vía Resend (API HTTP). Si DEV_EMAIL_OVERRIDE está definida,
+ * todos los envíos van a esa dirección (y el asunto se prefija con [TEST]).
+ * Si RESEND_API_KEY no está configurada, solo loguea un warning (no lanza).
  */
 async function sendMail({ to, subject, html }) {
-  const transport = createTransport();
-  if (!transport) {
-    console.warn('[email] SMTP no configurado — email no enviado. To:', to, '| Subject:', subject);
+  const resend = getClient();
+  if (!resend) {
+    console.warn('[email] RESEND_API_KEY no configurado — email no enviado. To:', to, '| Subject:', subject);
     return;
   }
 
-  const override = process.env.DEV_EMAIL_OVERRIDE?.trim();
+  const override      = process.env.DEV_EMAIL_OVERRIDE?.trim();
   const actualTo      = override || to;
   const actualSubject = override ? `[TEST] ${subject}` : subject;
 
-  await transport.sendMail({
+  const { data, error } = await resend.emails.send({
     from:    process.env.SMTP_FROM || 'PodoSystem <info@podosystem.es>',
     to:      actualTo,
     subject: actualSubject,
     html,
     text:    html.replace(/<[^>]+>/g, '').replace(/\s{2,}/g, ' ').trim(),
   });
+  if (error) throw new Error(`Resend: ${error.message || JSON.stringify(error)}`);
+  return data;
 }
 
 module.exports = { sendMail };
