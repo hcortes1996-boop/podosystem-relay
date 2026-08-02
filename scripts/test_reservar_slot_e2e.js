@@ -53,6 +53,15 @@ const reservar = async (hora) => {
   return { status: r.status, body: await r.json().catch(() => ({})) };
 };
 
+const reservar_ = async (fechaX, hora) => {
+  const r = await fetch(`http://127.0.0.1:${PORT}/api/reservar-slot`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ clinicaId: CLINICA, fecha: fechaX, hora,
+                           nombre: 'Paciente Test', telefono: '600000001' }),
+  });
+  return { status: r.status, body: await r.json().catch(() => ({})) };
+};
+
 setTimeout(async () => {
   const db = require('../src/db').getDb ? require('../src/db').getDb() : require('better-sqlite3')(TMP);
 
@@ -88,6 +97,15 @@ setTimeout(async () => {
   const r1030 = await reservar('10:30');
   ok(r1030.status === 200 || r1030.body.ok, 'reservar 10:30 se ACEPTA (no solapa con la de 10:00)',
      `obtenido HTTP ${r1030.status}`);
+
+  // Fuera de la ventana publicada: diasMax=14 días naturales, así que un día a
+  // 60 días debe rechazarse aunque el hueco esté libre. Última línea de defensa
+  // contra una petición directa que no pase por la web.
+  const lejos = new Date(); lejos.setDate(lejos.getDate() + 60);
+  while (lejos.getDay() === 0 || lejos.getDay() === 6) lejos.setDate(lejos.getDate() + 1);
+  const rLejos = await reservar_(lejos.toISOString().slice(0, 10), '10:00');
+  ok(rLejos.status === 409, 'reservar a 60 días se RECHAZA (fuera de la ventana publicada)',
+     `obtenido HTTP ${rLejos.status} ${JSON.stringify(rLejos.body).slice(0, 120)}`);
 
   console.log(`\n${pasados} pasados, ${fallados} fallados`);
   try { fs.unlinkSync(TMP); } catch {}

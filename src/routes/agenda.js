@@ -688,7 +688,20 @@ router.post('/reservar-slot', (req, res) => {
       // Duración del hueco que se pretende reservar — necesaria para comparar
       // solapamientos, así que se calcula ANTES de verificar.
       const cfgRow = req.db.prepare('SELECT config FROM agenda_config WHERE clinicaId = ?').get(clinicaId);
-      const duracion = cfgRow ? (JSON.parse(cfgRow.config).duracionSlot || 30) : 30;
+      const cfgRes = cfgRow ? JSON.parse(cfgRow.config) : {};
+      const duracion = cfgRes.duracionSlot || 30;
+
+      // La fecha debe caer dentro de la ventana publicada. La web solo ofrece lo
+      // que devuelve /api/semana, que ya está acotado, pero una petición directa
+      // podría reservar un día del que el PC nunca envió ocupación — que es como
+      // se produjeron las dobles citas de agosto de 2026. Falla en cerrado.
+      {
+        const hoyRes = new Date(); hoyRes.setHours(0, 0, 0, 0);
+        const finRes = ventanaFin(hoyRes, cfgRes.diasMax || 14, cfgRes.horario || {}, cfgRes.ventana);
+        finRes.setHours(23, 59, 59, 999);
+        const pedida = new Date(fecha + 'T12:00:00Z');
+        if (pedida < hoyRes || pedida > finRes) return 'fuera_de_ventana';
+      }
 
       // Verificar slot libre POR SOLAPAMIENTO, no por igualdad de hora.
       //
@@ -744,6 +757,9 @@ router.post('/reservar-slot', (req, res) => {
       return { id, duracion };
     })();
 
+    if (resultado === 'fuera_de_ventana') {
+      return res.status(409).json({ ok: false, error: 'Esa fecha no está disponible para reserva online. Por favor, elija otra.' });
+    }
     if (!resultado) {
       return res.status(409).json({ ok: false, error: 'Este horario ya ha sido reservado. Por favor, elija otro.' });
     }
