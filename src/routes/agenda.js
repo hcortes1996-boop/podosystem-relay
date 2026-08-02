@@ -30,15 +30,36 @@ const auth   = require('../middleware/auth');
 //   }
 // }
 router.put('/sync-agenda', auth, (req, res) => {
-  const { config, citasOcupadas, podologos, citasOcupadasPorPodologo } = req.body;
+  const { config, citasOcupadas, podologos, citasOcupadasPorPodologo, ventana } = req.body;
   if (!config) return res.status(400).json({ ok: false, error: 'Falta config' });
 
-  // Guardar config (sin cambios)
+  // Incidente 08-2026 — Fix 4 degradado: avisar, no rechazar.
+  //
+  // Un envío vacío borra toda la ocupación (DELETE + INSERT más abajo) y deja la
+  // agenda entera reservable. Eso ocurrió por un filtro que se quedó sin elementos.
+  // Pero un vacío también es legítimo (agosto, cancelación masiva), y rechazarlo
+  // dejaría ocupación vieja pegada bloqueando huecos reales — sobre todo en PC que
+  // nunca enviarán una bandera explícita. Se registra para poder detectarlo.
+  const previas = req.db
+    .prepare('SELECT COUNT(*) AS n FROM citas_ocupadas WHERE clinicaId = ?')
+    .get(req.clinicaId).n;
+  const entrantes = (citasOcupadas || []).length;
+  if (previas > 0 && entrantes === 0) {
+    console.warn(`[sync-agenda] ⚠️  ${req.clinicaId}: ocupación pasa de ${previas} a 0. ` +
+                 `Si la agenda no está realmente vacía, es el Bug B del incidente 08-2026.`);
+  }
+
+  // Guardar config. `ventana` (opcional, PC ≥3.3.2) declara el rango que el PC
+  // cubre de verdad; ventanaFin() acota la oferta a él para no ofertar días sin
+  // datos de ocupación. Los PC que no la envían mantienen el comportamiento previo.
+  const configAGuardar = ventana && typeof ventana === 'object'
+    ? { ...config, ventana }
+    : config;
   req.db.prepare(`
     INSERT INTO agenda_config (clinicaId, config, updatedAt)
     VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     ON CONFLICT(clinicaId) DO UPDATE SET config=excluded.config, updatedAt=excluded.updatedAt
-  `).run(req.clinicaId, JSON.stringify(config));
+  `).run(req.clinicaId, JSON.stringify(configAGuardar));
 
   // Reemplazar citas_ocupadas (agregadas, sin podologoId — legacy)
   req.db.prepare('DELETE FROM citas_ocupadas WHERE clinicaId = ?').run(req.clinicaId);
@@ -374,6 +395,52 @@ function isSlotLibreParaPodologo(db, clinicaId, podologoId, fecha, hora, duracio
 }
 
 /* ── Helper: sumar N días hábiles según horario ───────────────── */
+/**
+ * ¿Solapa una reserva de [hora, hora+duracion) con alguna ocupación?
+ *
+ * Incidente 08-2026: las comprobaciones de reservar-slot usaban `AND hora = ?`,
+ * igualdad exacta. Una cita de 11:45 durante 60 min NO impedía reservar a las
+ * 12:00, aunque slotLibres() sí lo tenía en cuenta al pintar la disponibilidad.
+ * La última línea de defensa era más débil que la pantalla.
+ */
+function haySolape(ocupadas, hora, duracionSlot) {
+  const ini = timeToMinutes(hora);
+  const fin = ini + duracionSlot;
+  return (ocupadas || []).some(oc => {
+    const oIni = timeToMinutes(oc.hora);
+    const oFin = oIni + (oc.duracion || duracionSlot);
+    return ini < oFin && fin > oIni;
+  });
+}
+
+/**
+ * Último día que se puede ofertar.
+ *
+ * Incidente 08-2026 (Bug A): el relay calculaba la ventana en días HÁBILES
+ * mientras el PC enviaba la ocupación de `diasMax` días NATURALES. La cola
+ * sobrante se ofertaba sin ningún dato de ocupación, y el sync del PC la
+ * regeneraba cada 30 minutos. Resultado: dobles citas reales.
+ *
+ * Ahora:
+ *  - Si el PC declara su ventana (`ventana.hasta`), manda ella, acotada a lo
+ *    que el relay ofertaría como máximo. Falla en cerrado.
+ *  - Si no la declara (versiones ≤3.3.1), se usan días NATURALES, que es lo
+ *    que esos PC cubren realmente. Cierra el hueco sin depender del cliente.
+ *
+ * `sumarDiasHabiles` se conserva: es el techo máximo de oferta.
+ */
+function ventanaFin(base, diasMax, horario, ventana) {
+  const techo = new Date(base);
+  techo.setDate(techo.getDate() + diasMax);      // días naturales = lo que envía el PC
+
+  const declarada = ventana && typeof ventana.hasta === 'string'
+    && /^\d{4}-\d{2}-\d{2}$/.test(ventana.hasta)
+    ? new Date(ventana.hasta + 'T12:00:00Z') : null;
+
+  if (declarada && !isNaN(declarada) && declarada < techo) return declarada;
+  return techo;
+}
+
 function sumarDiasHabiles(base, nDias, horario) {
   if (!nDias || nDias <= 0) return new Date(base);
   // Seguridad: si el horario no tiene días laborables, usar días naturales
@@ -415,7 +482,7 @@ router.get('/dias-disponibles/:clinicaId', (req, res) => {
 
   // Calcular ventana en días hábiles
   const fechaInicio = diasMin > 0 ? sumarDiasHabiles(hoy, diasMin, horario) : new Date(hoy);
-  const fechaFin    = sumarDiasHabiles(hoy, diasMax, horario);
+  const fechaFin    = ventanaFin(hoy, diasMax, horario, cfg.ventana);
 
   const cursor = new Date(fechaInicio);
   cursor.setHours(12, 0, 0, 0);
@@ -618,31 +685,43 @@ router.post('/reservar-slot', (req, res) => {
 
   try {
     const resultado = req.db.transaction(() => {
-      // Verificar slot libre:
+      // Duración del hueco que se pretende reservar — necesaria para comparar
+      // solapamientos, así que se calcula ANTES de verificar.
+      const cfgRow = req.db.prepare('SELECT config FROM agenda_config WHERE clinicaId = ?').get(clinicaId);
+      const duracion = cfgRow ? (JSON.parse(cfgRow.config).duracionSlot || 30) : 30;
+
+      // Verificar slot libre POR SOLAPAMIENTO, no por igualdad de hora.
+      //
+      // Incidente 08-2026: estas tres consultas usaban `AND hora = ?`, así que
+      // una cita de 11:45 durante 60 min no impedía reservar a las 12:00. La
+      // disponibilidad que se pinta (slotLibres) sí lo tenía en cuenta, de modo
+      // que la última línea de defensa era más débil que la pantalla.
+      //
       // - citas_ocupadas → bloquea siempre (slot agregado para todos)
       // - citas_podologo del mismo podologoId → bloquea si reserva específica
       // - reservas 'pendiente_pc' → doble check
-      let ocupado = req.db
-        .prepare('SELECT 1 FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ? AND hora = ?')
-        .get(clinicaId, fecha, hora);
+      const ocupadasAgregadas = req.db
+        .prepare('SELECT hora, duracion FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ?')
+        .all(clinicaId, fecha);
+      let ocupado = haySolape(ocupadasAgregadas, hora, duracion);
+
       if (!ocupado && podologoId) {
-        ocupado = req.db
-          .prepare('SELECT 1 FROM citas_podologo WHERE clinicaId = ? AND podologoId = ? AND fecha = ? AND hora = ?')
-          .get(clinicaId, podologoId, fecha, hora);
+        const ocupadasPod = req.db
+          .prepare('SELECT hora, duracion FROM citas_podologo WHERE clinicaId = ? AND podologoId = ? AND fecha = ?')
+          .all(clinicaId, podologoId, fecha);
+        ocupado = haySolape(ocupadasPod, hora, duracion);
       }
+
       if (!ocupado) {
         // Reserva pendiente del mismo podologoId, o agregada (legacy) que bloquea a todos
-        ocupado = req.db
-          .prepare(`SELECT 1 FROM reservas
-                    WHERE clinicaId = ? AND fecha = ? AND hora = ? AND estado = 'pendiente_pc'
+        const pendientes = req.db
+          .prepare(`SELECT hora, duracion FROM reservas
+                    WHERE clinicaId = ? AND fecha = ? AND estado = 'pendiente_pc'
                     AND (podologoId IS NULL OR podologoId = ?)`)
-          .get(clinicaId, fecha, hora, podologoId || null);
+          .all(clinicaId, fecha, podologoId || null);
+        ocupado = haySolape(pendientes, hora, duracion);
       }
       if (ocupado) return null;
-
-      // Obtener duración del slot de la config
-      const cfgRow = req.db.prepare('SELECT config FROM agenda_config WHERE clinicaId = ?').get(clinicaId);
-      const duracion = cfgRow ? (JSON.parse(cfgRow.config).duracionSlot || 30) : 30;
 
       // Bloquear el slot:
       // - Si podologoId → citas_podologo (otros podólogos siguen libres en ese slot)
@@ -713,7 +792,7 @@ router.get('/semana/:clinicaId', (req, res) => {
 
   // Ventana de reserva en días hábiles
   const fechaInicio = diasMin > 0 ? sumarDiasHabiles(hoy, diasMin, horario) : new Date(hoy);
-  const fechaFin    = sumarDiasHabiles(hoy, diasMax, horario);
+  const fechaFin    = ventanaFin(hoy, diasMax, horario, cfg.ventana);
   fechaInicio.setHours(12, 0, 0, 0);
   fechaFin.setHours(12, 0, 0, 0);
 
@@ -819,7 +898,7 @@ router.get('/semana/:clinicaId/:podologoId', (req, res) => {
 
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
   const fechaInicio = diasMin > 0 ? sumarDiasHabiles(hoy, diasMin, horario) : new Date(hoy);
-  const fechaFin    = sumarDiasHabiles(hoy, diasMax, horario);
+  const fechaFin    = ventanaFin(hoy, diasMax, horario, cfg.ventana);
   fechaInicio.setHours(12, 0, 0, 0);
   fechaFin.setHours(12, 0, 0, 0);
 
@@ -931,3 +1010,8 @@ router.put('/reservas/:id/pendiente', auth, (req, res) => {
 });
 
 module.exports = router;
+
+// Helpers expuestos para scripts/test_agenda_solapes.js
+module.exports.__test__ = {
+  haySolape, ventanaFin, sumarDiasHabiles, slotLibres, generarSlots, timeToMinutes,
+};
