@@ -33,20 +33,31 @@ router.put('/sync-agenda', auth, (req, res) => {
   const { config, citasOcupadas, podologos, citasOcupadasPorPodologo, ventana } = req.body;
   if (!config) return res.status(400).json({ ok: false, error: 'Falta config' });
 
-  // Incidente 08-2026 — Fix 4 degradado: avisar, no rechazar.
+  // Incidente 08-2026 — un envío vacío NO puede borrar la ocupación existente.
   //
-  // Un envío vacío borra toda la ocupación (DELETE + INSERT más abajo) y deja la
-  // agenda entera reservable. Eso ocurrió por un filtro que se quedó sin elementos.
-  // Pero un vacío también es legítimo (agosto, cancelación masiva), y rechazarlo
-  // dejaría ocupación vieja pegada bloqueando huecos reales — sobre todo en PC que
-  // nunca enviarán una bandera explícita. Se registra para poder detectarlo.
+  // El IPC `relay:syncAgenda` del PC envía cero citas ocupadas cuando todas
+  // tienen podologoId y el plan no es 'red' (Bug B). Y no se dispara solo desde
+  // el botón "Sincronizar": también al AÑADIR, EDITAR o ELIMINAR una cita
+  // (ClinicaApp.jsx:12835, 12844, 12853). En una clínica en funcionamiento eso
+  // son decenas de vaciados al día, dejando la agenda entera reservable hasta el
+  // siguiente sync automático. Se comprobó en producción el 03-08-2026: cinco
+  // franjas ocupadas se ofrecían como libres.
+  //
+  // El relay no puede confiar en que el emisor esté sano. Si ya tenía ocupación
+  // y llega vacío, conserva la anterior. Para vaciar de verdad (agosto,
+  // cancelación masiva) hay que pedirlo con `permitirVacio: true`.
+  //
+  // Coste del falso positivo: una clínica con la ventana realmente vacía y un PC
+  // que no envíe la bandera mantiene ocupación vieja y pierde reservas. Molesto,
+  // pero incomparable con ofertar horas ya ocupadas.
   const previas = req.db
     .prepare('SELECT COUNT(*) AS n FROM citas_ocupadas WHERE clinicaId = ?')
     .get(req.clinicaId).n;
   const entrantes = (citasOcupadas || []).length;
-  if (previas > 0 && entrantes === 0) {
-    console.warn(`[sync-agenda] ⚠️  ${req.clinicaId}: ocupación pasa de ${previas} a 0. ` +
-                 `Si la agenda no está realmente vacía, es el Bug B del incidente 08-2026.`);
+  const conservarOcupacion = previas > 0 && entrantes === 0 && req.body.permitirVacio !== true;
+  if (conservarOcupacion) {
+    console.warn(`[sync-agenda] ⚠️  ${req.clinicaId}: llegó ocupación vacía teniendo ${previas} ` +
+                 `citas. Se CONSERVAN. Origen probable: Bug B del incidente 08-2026.`);
   }
 
   // Guardar config. `ventana` (opcional, PC ≥3.3.2) declara el rango que el PC
@@ -61,10 +72,12 @@ router.put('/sync-agenda', auth, (req, res) => {
     ON CONFLICT(clinicaId) DO UPDATE SET config=excluded.config, updatedAt=excluded.updatedAt
   `).run(req.clinicaId, JSON.stringify(configAGuardar));
 
-  // Reemplazar citas_ocupadas (agregadas, sin podologoId — legacy)
-  req.db.prepare('DELETE FROM citas_ocupadas WHERE clinicaId = ?').run(req.clinicaId);
+  // Reemplazar citas_ocupadas (agregadas, sin podologoId — legacy).
+  // El DELETE va DENTRO de la transacción: si se deja fuera, un envío que luego
+  // se decide conservar habría borrado la tabla igualmente.
   const insOcupadas = req.db.prepare('INSERT OR IGNORE INTO citas_ocupadas (clinicaId, fecha, hora, duracion) VALUES (?,?,?,?)');
   const insertAllOcupadas = req.db.transaction((citas) => {
+    req.db.prepare('DELETE FROM citas_ocupadas WHERE clinicaId = ?').run(req.clinicaId);
     for (const c of (citas || [])) {
       if (c.fecha && c.hora) insOcupadas.run(req.clinicaId, c.fecha, c.hora, c.duracion || 30);
     }
@@ -76,7 +89,7 @@ router.put('/sync-agenda', auth, (req, res) => {
       if (r.fecha && r.hora) insOcupadas.run(req.clinicaId, r.fecha, r.hora, r.duracion || 30);
     }
   });
-  insertAllOcupadas(citasOcupadas || []);
+  if (!conservarOcupacion) insertAllOcupadas(citasOcupadas || []);
 
   // Pieza 3.3 — Upsert podologos_publicos si viene en el payload
   if (Array.isArray(podologos)) {
@@ -128,7 +141,8 @@ router.put('/sync-agenda', auth, (req, res) => {
 
   res.json({
     ok: true,
-    citasSincronizadas: (citasOcupadas || []).length,
+    ocupacionConservada: conservarOcupacion || undefined,
+    citasSincronizadas: conservarOcupacion ? previas : (citasOcupadas || []).length,
     podologosSincronizados: Array.isArray(podologos) ? podologos.length : 0,
     citasPodologoSincronizadas: Array.isArray(citasOcupadasPorPodologo) ? citasOcupadasPorPodologo.length : 0
   });
