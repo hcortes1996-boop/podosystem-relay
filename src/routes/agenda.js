@@ -1019,9 +1019,18 @@ router.put('/reservas/:id/cancelar', auth, (req, res) => {
   if (!reserva) return res.status(404).json({ ok: false, error: 'Reserva no encontrada' });
 
   req.db.prepare(`UPDATE reservas SET estado = 'cancelada' WHERE id = ?`).run(req.params.id);
-  // Liberar el slot de citas_ocupadas (si solo lo bloqueaba esta reserva)
-  req.db.prepare('DELETE FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ? AND hora = ?')
-    .run(req.clinicaId, reserva.fecha, reserva.hora);
+
+  // NO se toca citas_ocupadas. Antes había aquí un DELETE por (clinicaId, fecha, hora)
+  // cuyo comentario decía «si solo lo bloqueaba esta reserva» — pero el SQL borraba sin
+  // esa condición, y la tabla no tiene columna de procedencia: es imposible distinguir si
+  // ese hueco lo ocupaba esta reserva o una cita que el PC metió a mano. Cada llamada
+  // podía liberar una hora que seguía ocupada, y la ventana duraba hasta el siguiente
+  // sync-agenda: 30 minutos. Es el mecanismo de las dobles citas de agosto de 2026.
+  //
+  // La ocupación la reconstruye siempre el PC (sync-agenda), que es el único que sabe lo
+  // que hay de verdad en la agenda. El PC dispara un sync en cuanto cancela, así que el
+  // hueco se libera en segundos. Si el PC está apagado el hueco tarda más en re-ofertarse:
+  // eso es fallar del lado seguro — ofertar de menos nunca provoca una doble cita.
   res.json({ ok: true });
 });
 
