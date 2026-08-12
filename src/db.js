@@ -208,6 +208,30 @@ function initDB() {
   try { db.exec('ALTER TABLE clinicas ADD COLUMN activation_code_used INTEGER DEFAULT 0'); } catch (_) {}
   // v2.0+ — Referencia a la clínica creada al aprobar solicitud de alta
   try { db.exec('ALTER TABLE solicitudes_alta ADD COLUMN clinicaId TEXT'); } catch (_) {}
+  // Sub-pieza 8.20 — El paciente anula su cita desde el enlace del WhatsApp.
+  // El token NO es el id de la reserva: `res_xxxxxxxxxx` no es secreto ni está
+  // pensado para serlo, y con un id adivinable cualquiera podría anular citas
+  // ajenas probando combinaciones. Se guarda SOLO el hash: si alguien se llevara
+  // esta base, no podría anular nada. El token en claro vive en el PC de la clínica,
+  // que es quien tiene que poder reconstruir el enlace para reenviarlo.
+  try { db.exec('ALTER TABLE reservas ADD COLUMN tokenHash TEXT'); } catch (_) {}
+  // El token en claro SÍ se guarda, pero solo hasta que el PC lo recoge: el enlace
+  // lo construye el PC (el WhatsApp lo envía una persona, quizá horas después), y
+  // de un hash no se puede reconstruir. En cuanto el PC marca la reserva como
+  // sincronizada se borra esta columna y queda solo el hash. Si el PC lo pierde,
+  // se regenera desde `/reservas/:id/regenerar-token` (autenticado).
+  try { db.exec('ALTER TABLE reservas ADD COLUMN tokenPlano TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE reservas ADD COLUMN tokenUsadoEn TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE reservas ADD COLUMN canceladaEn TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE reservas ADD COLUMN canceladaPor TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE reservas ADD COLUMN motivoCancelacion TEXT'); } catch (_) {}
+  // Intento de anular fuera de plazo. No anula nada, pero se guarda: aunque el
+  // paciente no llegue a llamar, la clínica sabe que probablemente no viene. Es
+  // información que hoy no existe en ninguna parte.
+  try { db.exec('ALTER TABLE reservas ADD COLUMN intentoAnularEn TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE reservas ADD COLUMN intentoAnularNota TEXT'); } catch (_) {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_reservas_token ON reservas(tokenHash)'); } catch (_) {}
+
   // v2.1+ — Datos de contacto de la clínica (necesarios para deploy Netlify diferido)
   try { db.exec('ALTER TABLE clinicas ADD COLUMN telefono TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE clinicas ADD COLUMN ciudad TEXT'); } catch (_) {}

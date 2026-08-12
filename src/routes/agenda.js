@@ -15,6 +15,21 @@
 
 const router = require('express').Router();
 const auth   = require('../middleware/auth');
+const { generarToken, hashToken, puedeAnular, vistaPublica, PLAZO_HORAS } = require('../lib/anulacion');
+
+// Límite propio para los endpoints que abre el paciente desde el enlace. Más
+// holgado que el de reservar (aquí es normal abrir el enlace varias veces: mirarlo,
+// pensárselo, volver) pero suficiente para que probar tokens al azar no compense.
+// Se desactiva en los tests, que hacen decenas de llamadas seguidas a propósito.
+const limitePublico = process.env.NODE_ENV === 'test'
+  ? (_req, _res, next) => next()
+  : require('express-rate-limit')({
+      windowMs: 60 * 60 * 1000,
+      max: 60,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { ok: false, error: 'Demasiadas peticiones. Inténtelo más tarde o llame a la clínica.' },
+    });
 
 /* ── PodoSystem sincroniza horario y citas ────────────────────── */
 // Body: { config: {...}, citasOcupadas: [{fecha, hora, duracion}] }
@@ -761,14 +776,21 @@ router.post('/reservar-slot', (req, res) => {
           .run(clinicaId, fecha, hora, duracion);
       }
 
-      // Crear la reserva con podologoId (nullable)
-      req.db.prepare(`
-        INSERT INTO reservas (id, clinicaId, fecha, hora, duracion, nombre, telefono, email, motivo, observaciones, podologoId)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)
-      `).run(id, clinicaId, fecha, hora, duracion, nombre.trim(), telefono.trim(),
-        email?.trim() || null, motivo || null, observaciones?.trim() || null, podologoId || null);
+      // Token para que el paciente pueda anular desde el enlace del WhatsApp.
+      // En la base solo el hash; el token en claro sale de aquí una vez y viaja al
+      // PC dentro de /reservas-nuevas (que hace SELECT *), que es quien tiene que
+      // poder reconstruir el enlace después — el WhatsApp lo manda una persona a
+      // mano, quizá horas más tarde, y puede querer reenviarlo.
+      const token = generarToken();
 
-      return { id, duracion };
+      req.db.prepare(`
+        INSERT INTO reservas (id, clinicaId, fecha, hora, duracion, nombre, telefono, email, motivo, observaciones, podologoId, tokenHash, tokenPlano)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `).run(id, clinicaId, fecha, hora, duracion, nombre.trim(), telefono.trim(),
+        email?.trim() || null, motivo || null, observaciones?.trim() || null, podologoId || null,
+        hashToken(token), token);
+
+      return { id, duracion, token };
     })();
 
     if (resultado === 'fuera_de_ventana') {
@@ -997,8 +1019,27 @@ router.put('/reservas/:id/sincronizar', auth, (req, res) => {
     .get(req.params.id, req.clinicaId);
   if (!reserva) return res.status(404).json({ ok: false, error: 'Reserva no encontrada' });
 
-  req.db.prepare(`UPDATE reservas SET estado = 'sincronizada' WHERE id = ?`).run(req.params.id);
+  // Se borra el token en claro: el PC ya lo tiene y a partir de aquí solo queda el
+  // hash. Si el PC lo pierde, `/reservas/:id/regenerar-token` emite uno nuevo.
+  req.db.prepare(`UPDATE reservas SET estado = 'sincronizada', tokenPlano = NULL WHERE id = ?`)
+    .run(req.params.id);
   res.json({ ok: true });
+});
+
+/* ── El PC pide un token nuevo (perdió el suyo, o quiere reenviar el enlace) ── */
+router.put('/reservas/:id/regenerar-token', auth, (req, res) => {
+  const reserva = req.db
+    .prepare('SELECT id FROM reservas WHERE id = ? AND clinicaId = ?')
+    .get(req.params.id, req.clinicaId);
+  if (!reserva) return res.status(404).json({ ok: false, error: 'Reserva no encontrada' });
+
+  // El token anterior deja de valer. Es lo correcto: si se regenera es porque el
+  // viejo se perdió o se quiere invalidar, y dejar dos activos multiplicaría por dos
+  // las formas de anular esa cita sin ninguna ventaja.
+  const token = generarToken();
+  req.db.prepare('UPDATE reservas SET tokenHash = ?, tokenUsadoEn = NULL WHERE id = ?')
+    .run(hashToken(token), req.params.id);
+  res.json({ ok: true, token });
 });
 
 /* ── PodoSystem obtiene historial de reservas recientes (todas) ── */
@@ -1046,6 +1087,105 @@ router.put('/reservas/:id/pendiente', auth, (req, res) => {
   req.db.prepare('INSERT OR IGNORE INTO citas_ocupadas (clinicaId, fecha, hora, duracion) SELECT clinicaId, fecha, hora, duracion FROM reservas WHERE id = ?')
     .run(req.params.id);
   res.json({ ok: true });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   EL PACIENTE GESTIONA SU CITA — endpoints PÚBLICOS (sub-pieza 8.20)
+
+   Sin apiKey: el paciente no la tiene ni debe tenerla. Lo que los protege es el
+   token de 32 caracteres del enlace y el límite de peticiones.
+
+   Tres reglas que no se relajan:
+   · El plazo se valida AQUÍ, no en la página. La página puede esconder el botón;
+     quien decide es esto.
+   · Un token inexistente y uno de otra clínica responden EXACTAMENTE igual que uno
+     caducado. Si se distinguieran, se podría averiguar qué tokens existen.
+   · Fuera de plazo no se anula, pero se REGISTRA el intento. Aunque el paciente no
+     llegue a llamar, la clínica sabe que probablemente no viene — información que
+     hoy no existe en ninguna parte.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/** Busca por hash y devuelve también la clínica y su zona horaria. */
+function buscarPorToken(db, token) {
+  if (!token || String(token).length < 16) return null;
+  const reserva = db.prepare('SELECT * FROM reservas WHERE tokenHash = ?').get(hashToken(token));
+  if (!reserva) return null;
+  const clinica = db.prepare('SELECT id, nombre, telefono FROM clinicas WHERE id = ?')
+    .get(reserva.clinicaId);
+  let zonaHoraria = 'Europe/Madrid';
+  try {
+    const cfg = db.prepare('SELECT zonaHoraria FROM recordatorios_config WHERE clinicaId = ?')
+      .get(reserva.clinicaId);
+    if (cfg?.zonaHoraria) zonaHoraria = cfg.zonaHoraria;
+  } catch (_) {}
+  return { reserva, clinica, zonaHoraria };
+}
+
+/* ── El paciente abre el enlace y ve su cita ─────────────────── */
+router.get('/cita/:token', limitePublico, (req, res) => {
+  const encontrado = buscarPorToken(req.db, req.params.token);
+  // Misma respuesta para "no existe" que para "token mal formado": no se filtra
+  // qué tokens hay.
+  if (!encontrado) return res.status(404).json({ ok: false, error: 'Cita no encontrada' });
+
+  const { reserva, clinica, zonaHoraria } = encontrado;
+  const plazo = puedeAnular(reserva, zonaHoraria);
+  res.json({ ok: true, cita: vistaPublica(reserva, clinica, plazo) });
+});
+
+/* ── El paciente anula ───────────────────────────────────────── */
+router.post('/cita/:token/anular', limitePublico, (req, res) => {
+  const encontrado = buscarPorToken(req.db, req.params.token);
+  if (!encontrado) return res.status(404).json({ ok: false, error: 'Cita no encontrada' });
+
+  const { reserva, clinica, zonaHoraria } = encontrado;
+  const motivo = String(req.body?.motivo || '').slice(0, 200);
+
+  // Ya estaba anulada: se responde OK y se enseña el estado. Un enlace ya usado que
+  // devuelve un error feo genera una llamada a la clínica sin necesidad.
+  if (reserva.estado === 'cancelada') {
+    return res.json({
+      ok: true, yaEstaba: true,
+      cita: vistaPublica(reserva, clinica, puedeAnular(reserva, zonaHoraria)),
+    });
+  }
+
+  const plazo = puedeAnular(reserva, zonaHoraria);
+
+  if (!plazo.permitido) {
+    // No se anula. Pero el intento se guarda y la clínica lo ve: es lo que
+    // convierte una ausencia silenciosa en un aviso.
+    req.db.prepare(`UPDATE reservas SET intentoAnularEn = ?, intentoAnularNota = ? WHERE id = ?`)
+      .run(new Date().toISOString(), motivo || null, reserva.id);
+    console.warn(`⚠️ [anular] intento fuera de plazo — ${reserva.clinicaId} ${reserva.fecha} ${reserva.hora} (${plazo.motivo})`);
+    return res.status(409).json({
+      ok: false,
+      motivo: plazo.motivo,
+      avisoRegistrado: true,
+      horasAntelacion: PLAZO_HORAS,
+      telefonoClinica: clinica?.telefono || null,
+      error: plazo.motivo === 'pasada'
+        ? 'Esta cita ya ha pasado.'
+        : `No podemos anular esta cita desde la web: faltan menos de ${PLAZO_HORAS} horas. Llame a la clínica en horario de consulta. Le hemos avisado de que ha intentado anularla.`,
+    });
+  }
+
+  // La ocupación NO se toca. La reconstruye el PC en su siguiente sincronización,
+  // que es el único que sabe lo que hay de verdad en la agenda. Liberar el hueco
+  // aquí es lo que provocó las dobles citas de agosto de 2026.
+  const ahora = new Date().toISOString();
+  req.db.prepare(`
+    UPDATE reservas
+       SET estado = 'cancelada', canceladaEn = ?, canceladaPor = 'paciente',
+           motivoCancelacion = ?, tokenUsadoEn = ?
+     WHERE id = ?
+  `).run(ahora, motivo || null, ahora, reserva.id);
+
+  const actualizada = req.db.prepare('SELECT * FROM reservas WHERE id = ?').get(reserva.id);
+  res.json({
+    ok: true,
+    cita: vistaPublica(actualizada, clinica, puedeAnular(actualizada, zonaHoraria)),
+  });
 });
 
 module.exports = router;
