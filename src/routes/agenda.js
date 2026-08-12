@@ -1012,6 +1012,39 @@ router.get('/reservas-nuevas', auth, (req, res) => {
   res.json({ ok: true, reservas });
 });
 
+/* ── Lo que el paciente ha hecho con su cita desde la web ─────
+   Dos cosas distintas y por eso van separadas:
+     · `canceladas` — anuló. Su cita local hay que marcarla y su hueco liberarlo.
+     · `intentos`   — quiso anular fuera de plazo. La cita SIGUE EN PIE, pero
+                      probablemente no venga: hay que llamarle.
+   Mezclarlas en una sola lista llevaría a tratarlas igual, y no lo son.
+
+   `desde` acota la respuesta a lo nuevo. Si no se envía se devuelven los últimos
+   7 días: un PC que estuvo apagado una semana se pone al día solo. */
+router.get('/reservas-gestionadas', auth, (req, res) => {
+  const desde = req.query.desde || new Date(Date.now() - 7 * 86400000).toISOString();
+
+  const canceladas = req.db.prepare(`
+    SELECT id, fecha, hora, nombre, telefono, canceladaEn, canceladaPor, motivoCancelacion
+      FROM reservas
+     WHERE clinicaId = ? AND estado = 'cancelada'
+       AND canceladaPor = 'paciente' AND canceladaEn > ?
+     ORDER BY canceladaEn ASC
+  `).all(req.clinicaId, desde);
+
+  // Un intento no se filtra por estado: la reserva sigue activa, que es justo el
+  // motivo por el que hay que avisar.
+  const intentos = req.db.prepare(`
+    SELECT id, fecha, hora, nombre, telefono, intentoAnularEn, intentoAnularNota
+      FROM reservas
+     WHERE clinicaId = ? AND intentoAnularEn IS NOT NULL AND intentoAnularEn > ?
+       AND estado != 'cancelada'
+     ORDER BY intentoAnularEn ASC
+  `).all(req.clinicaId, desde);
+
+  res.json({ ok: true, canceladas, intentos, hasta: new Date().toISOString() });
+});
+
 /* ── PodoSystem marca reserva como sincronizada ───────────────── */
 router.put('/reservas/:id/sincronizar', auth, (req, res) => {
   const reserva = req.db
