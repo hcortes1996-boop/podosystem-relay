@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Su cita — {{CLINICA_NOMBRE}}</title>
+  <!-- No se indexa: cada dirección lleva el token de un paciente concreto. -->
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="podosystem-web" content="2026-08-14">
+  <link rel="icon" type="image/png" href="{{CLINICA_LOGO_URL}}">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+  <style>
+    /* ══════════════════════════════════════════════════════════════════════
+       Página INDEPENDIENTE, a propósito.
+       No comparte nada con cita.html: la página de reservas es lo que trae
+       pacientes y no se toca para añadir esto. Un fichero nuevo no puede
+       romper otro. Ver docs/webs_clinicas_estado_2026-08.md.
+       ══════════════════════════════════════════════════════════════════════ */
+    :root {
+      --c1: {{CLINICA_COLOR_1}};
+      --c2: {{CLINICA_COLOR_2}};
+      --acc: {{CLINICA_COLOR_ACCENT}};
+      --tinta: #1e293b;
+      --suave: #64748b;
+      --borde: #e2e8f0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Lato', system-ui, sans-serif;
+      color: var(--tinta);
+      background:
+        radial-gradient(ellipse 80% 60% at 20% 20%, var(--acc) 0%, transparent 55%),
+        linear-gradient(145deg, var(--c1) 0%, var(--c2) 100%);
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      padding: 24px 16px;
+    }
+    .tarjeta {
+      background: #fff; border-radius: 20px; width: 100%; max-width: 520px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.25); overflow: hidden;
+    }
+    .cabecera { padding: 28px 28px 20px; border-bottom: 1px solid var(--borde); text-align: center; }
+    .cabecera img { max-height: 56px; margin-bottom: 12px; }
+    .cabecera h1 { font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 600; }
+    .cuerpo { padding: 28px; }
+    .dato { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #f1f5f9; font-size: 15px; }
+    .dato:last-child { border-bottom: 0; }
+    .dato span:first-child { color: var(--suave); min-width: 96px; }
+    .dato span:last-child { font-weight: 700; }
+    .aviso { border-radius: 14px; padding: 16px; margin: 20px 0; font-size: 15px; line-height: 1.5; }
+    .aviso--ok    { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+    .aviso--tarde { background: #fffbeb; border: 1px solid #fde68a; color: #78350f; }
+    .aviso--malo  { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; }
+    .aviso strong { display: block; margin-bottom: 6px; font-size: 16px; }
+    .tel {
+      display: inline-block; margin-top: 10px; padding: 12px 20px; border-radius: 12px;
+      background: var(--c1); color: #fff; text-decoration: none; font-weight: 700; font-size: 17px;
+    }
+    label { display: block; font-size: 14px; color: var(--suave); margin: 18px 0 8px; }
+    select, textarea {
+      width: 100%; padding: 12px 14px; border: 1px solid var(--borde); border-radius: 12px;
+      font-family: inherit; font-size: 15px; background: #fff; color: var(--tinta);
+    }
+    textarea { resize: vertical; min-height: 72px; }
+    .botones { display: flex; flex-direction: column; gap: 10px; margin-top: 22px; }
+    button {
+      padding: 15px; border: 0; border-radius: 12px; font-family: inherit;
+      font-size: 16px; font-weight: 700; cursor: pointer;
+    }
+    .btn-anular { background: #dc2626; color: #fff; }
+    .btn-anular:disabled { background: #fca5a5; cursor: wait; }
+    .btn-no { background: #f1f5f9; color: var(--suave); }
+    .pie { padding: 16px 28px 24px; text-align: center; font-size: 13px; color: #94a3b8; }
+    .cargando { padding: 60px 28px; text-align: center; color: var(--suave); }
+    .oculto { display: none; }
+  </style>
+</head>
+<body>
+  <div class="tarjeta">
+    <div class="cabecera">
+      <img src="{{CLINICA_LOGO_URL}}" alt="{{CLINICA_NOMBRE}}" onerror="this.style.display='none'">
+      <h1>{{CLINICA_NOMBRE}}</h1>
+    </div>
+
+    <div id="cargando" class="cargando">Un momento, buscando su cita…</div>
+    <div id="cuerpo" class="cuerpo oculto"></div>
+
+    <div class="pie">
+      ¿Alguna duda? Llámenos al <a href="tel:{{CLINICA_TELEFONO_RAW}}">{{CLINICA_TELEFONO}}</a>
+    </div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  var RELAY = 'https://podosystem-relay-production.up.railway.app';
+  var TELEFONO = '{{CLINICA_TELEFONO}}';
+  var TEL_RAW  = '{{CLINICA_TELEFONO_RAW}}';
+
+  // El token identifica la cita. Va en `gestionar` para no chocar con el
+  // parámetro `clinica` que usa cita.html.
+  var token = new URLSearchParams(location.search).get('gestionar') || '';
+
+  var elCargando = document.getElementById('cargando');
+  var elCuerpo   = document.getElementById('cuerpo');
+
+  var DIAS  = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+  var MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+
+  function fechaBonita(iso) {
+    var p = String(iso || '').split('-');
+    if (p.length !== 3) return iso || '';
+    var d = new Date(+p[0], +p[1] - 1, +p[2]);
+    if (isNaN(d)) return iso;
+    return DIAS[d.getDay()] + ' ' + (+p[2]) + ' de ' + MESES[+p[1] - 1] + ' de ' + p[0];
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function mostrar(html) {
+    elCargando.classList.add('oculto');
+    elCuerpo.innerHTML = html;
+    elCuerpo.classList.remove('oculto');
+  }
+
+  function bloqueTelefono(texto) {
+    return '<p>' + esc(texto) + '</p>' +
+           '<a class="tel" href="tel:' + esc(TEL_RAW) + '">📞 ' + esc(TELEFONO) + '</a>';
+  }
+
+  function pantallaError(titulo, texto) {
+    mostrar('<div class="aviso aviso--malo"><strong>' + esc(titulo) + '</strong>' +
+            bloqueTelefono(texto) + '</div>');
+  }
+
+  function datosCita(c) {
+    return '<div class="dato"><span>Fecha</span><span>' + esc(fechaBonita(c.fecha)) + '</span></div>' +
+           '<div class="dato"><span>Hora</span><span>' + esc(c.hora) + 'h</span></div>' +
+           (c.motivo ? '<div class="dato"><span>Motivo</span><span>' + esc(c.motivo) + '</span></div>' : '') +
+           '<div class="dato"><span>A nombre de</span><span>' + esc(c.nombre) + '</span></div>';
+  }
+
+  // ── Las cuatro pantallas ─────────────────────────────────────────────────
+
+  function pantallaAnulada(c) {
+    var quien = c.canceladaPor === 'paciente' ? 'Usted anuló esta cita.' : 'Esta cita fue anulada.';
+    mostrar(datosCita(c) +
+      '<div class="aviso aviso--ok"><strong>Cita anulada</strong>' +
+      '<p>' + esc(quien) + ' No tiene que hacer nada más.</p>' +
+      '<p style="margin-top:8px">Si desea pedir una cita nueva, llámenos.</p>' +
+      '<a class="tel" href="tel:' + esc(TEL_RAW) + '">📞 ' + esc(TELEFONO) + '</a></div>');
+  }
+
+  function pantallaFueraDePlazo(c, horas) {
+    // No se anula, pero el intento SÍ queda registrado en la clínica. Decírselo
+    // importa: si no, cree que su gesto no ha servido de nada y no llama.
+    mostrar(datosCita(c) +
+      '<div class="aviso aviso--tarde"><strong>No podemos anularla desde aquí</strong>' +
+      '<p>Faltan menos de ' + horas + ' horas para su cita. Para anularla, llámenos ' +
+      'en horario de consulta y lo resolvemos en un momento.</p></div>' +
+      '<a class="tel" href="tel:' + esc(TEL_RAW) + '">📞 Llamar al ' + esc(TELEFONO) + '</a>' +
+      '<div id="registrado" style="margin-top:16px"></div>');
+
+    // Se avisa a la clínica en segundo plano, sin que tenga que pulsar nada.
+    fetch(RELAY + '/api/cita/' + encodeURIComponent(token) + '/anular', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ motivo: 'Intento de anulación desde la web' })
+    }).then(function (r) { return r.json().catch(function(){ return {}; }); })
+      .then(function (d) {
+        if (d && d.avisoRegistrado) {
+          document.getElementById('registrado').innerHTML =
+            '<div class="aviso aviso--ok" style="margin:0">' +
+            'Hemos avisado a la clínica de que ha intentado anular su cita.</div>';
+        }
+      }).catch(function () { /* si falla, se queda solo el teléfono: no molesta */ });
+  }
+
+  function pantallaPasada(c) {
+    mostrar(datosCita(c) +
+      '<div class="aviso aviso--tarde"><strong>Esta cita ya ha pasado</strong>' +
+      bloqueTelefono('Si necesita una cita nueva, llámenos y se la damos.') + '</div>');
+  }
+
+  function pantallaPuedeAnular(c) {
+    mostrar(datosCita(c) +
+      '<div class="aviso aviso--ok"><strong>Su cita está confirmada</strong>' +
+      '<p>Si no puede venir, anúlela aquí y liberará el hueco para otro paciente.</p></div>' +
+      '<label for="motivo">¿Por qué no puede venir? <em style="font-weight:400">(opcional)</em></label>' +
+      '<select id="motivo">' +
+        '<option value="">Prefiero no decirlo</option>' +
+        '<option>Me ha surgido un imprevisto</option>' +
+        '<option>Prefiero otro día u hora</option>' +
+        '<option>Ya no lo necesito</option>' +
+        '<option>Me equivoqué al reservar</option>' +
+        '<option value="otro">Otro motivo…</option>' +
+      '</select>' +
+      '<div id="otroBloque" class="oculto"><label for="otroTexto">Cuéntenos</label>' +
+      '<textarea id="otroTexto" maxlength="200" placeholder="Opcional"></textarea></div>' +
+      '<div class="botones">' +
+        '<button class="btn-anular" id="btnAnular">Anular mi cita</button>' +
+        '<button class="btn-no" id="btnNo">No, mantener la cita</button>' +
+      '</div>');
+
+    var sel = document.getElementById('motivo');
+    sel.addEventListener('change', function () {
+      document.getElementById('otroBloque').classList.toggle('oculto', sel.value !== 'otro');
+    });
+
+    document.getElementById('btnNo').addEventListener('click', function () {
+      mostrar(datosCita(c) +
+        '<div class="aviso aviso--ok"><strong>Perfecto, le esperamos</strong>' +
+        '<p>Su cita sigue en pie. Ya puede cerrar esta página.</p></div>');
+    });
+
+    document.getElementById('btnAnular').addEventListener('click', function () {
+      var b = this;
+      b.disabled = true;
+      b.textContent = 'Anulando…';
+      var motivo = sel.value === 'otro'
+        ? (document.getElementById('otroTexto').value || 'Otro motivo')
+        : sel.value;
+
+      fetch(RELAY + '/api/cita/' + encodeURIComponent(token) + '/anular', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motivo: motivo })
+      })
+      .then(function (r) { return r.json().then(function (d) { return { estado: r.status, d: d }; }); })
+      .then(function (res) {
+        if (res.estado === 200 && res.d.ok) {
+          mostrar('<div class="aviso aviso--ok"><strong>Cita anulada</strong>' +
+            '<p>Gracias por avisarnos: así otro paciente puede aprovechar su hueco.</p>' +
+            '<p style="margin-top:8px">Cuando quiera otra cita, llámenos o pídala en nuestra web.</p>' +
+            '<a class="tel" href="tel:' + esc(TEL_RAW) + '">📞 ' + esc(TELEFONO) + '</a></div>');
+          return;
+        }
+        // Entre que abrió el enlace y pulsó pudo cruzarse el plazo, o la clínica
+        // pudo mover la cita. Se vuelve a pedir el estado en vez de suponerlo.
+        b.disabled = false;
+        b.textContent = 'Anular mi cita';
+        cargar();
+      })
+      .catch(function () {
+        b.disabled = false;
+        b.textContent = 'Anular mi cita';
+        pantallaError('No hemos podido anularla',
+          'Ha fallado la conexión. Inténtelo de nuevo o llámenos y lo hacemos nosotros.');
+      });
+    });
+  }
+
+  // ── Arranque ─────────────────────────────────────────────────────────────
+
+  function cargar() {
+    elCuerpo.classList.add('oculto');
+    elCargando.classList.remove('oculto');
+
+    fetch(RELAY + '/api/cita/' + encodeURIComponent(token))
+      .then(function (r) { return r.json().then(function (d) { return { estado: r.status, d: d }; }); })
+      .then(function (res) {
+        if (res.estado !== 200 || !res.d.ok || !res.d.cita) {
+          // 404 también cuando el enlace es de otra clínica o está mal formado:
+          // el servidor responde igual a propósito, para no revelar qué existe.
+          pantallaError('No encontramos esta cita',
+            'El enlace puede haber caducado o no ser correcto. Llámenos y lo vemos.');
+          return;
+        }
+        // Cada motivo que devuelve el servidor tiene su pantalla. Nada de tratar
+        // "fuera de plazo" como caso por defecto: un `fecha_invalida` le diría al
+        // paciente que faltan menos de 24 horas, que sería falso.
+        var c = res.d.cita;
+        var motivo = (c.plazo && c.plazo.motivo) || '';
+        if (c.anulada) return pantallaAnulada(c);
+        if (c.plazo && c.plazo.permitido) return pantallaPuedeAnular(c);
+        if (motivo === 'pasada') return pantallaPasada(c);
+        if (motivo === 'fuera_plazo') return pantallaFueraDePlazo(c, c.plazo.horasAntelacion || 24);
+        // Cualquier otra cosa (hoy `fecha_invalida`, mañana lo que sea): no se
+        // inventa una explicación, se da el teléfono.
+        return pantallaError('No podemos gestionar esta cita desde aquí',
+          'Llámenos y lo resolvemos en un momento.');
+      })
+      .catch(function () {
+        pantallaError('No hemos podido conectar',
+          'Compruebe su conexión a internet e inténtelo de nuevo. Si sigue sin funcionar, llámenos.');
+      });
+  }
+
+  if (!token) {
+    pantallaError('Falta el enlace de su cita',
+      'Abra el enlace completo que le enviamos por WhatsApp. Si lo ha perdido, llámenos.');
+  } else {
+    cargar();
+  }
+})();
+</script>
+</body>
+</html>

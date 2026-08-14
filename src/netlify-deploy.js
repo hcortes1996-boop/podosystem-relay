@@ -69,7 +69,11 @@ function buildZip(vars) {
       const zipPath  = prefix ? `${prefix}/${e.name}` : e.name;
       if (e.isDirectory()) {
         addDir(fullPath, zipPath);
-      } else if (e.name === 'cita.html') {
+      } else if (e.name.endsWith('.html')) {
+        // Cualquier .html, no solo cita.html. Estaba atado al nombre del fichero, y
+        // al añadir gestionar.html sus {{CLINICA_*}} se habrían subido literales:
+        // el CSS con `{{CLINICA_COLOR_1}}` no es válido y la página saldría rota.
+        // Un fallo que solo se habría visto en producción, y en la página nueva.
         const raw = fs.readFileSync(fullPath, 'utf-8');
         files[zipPath] = Buffer.from(applyPlaceholders(raw, vars));
       } else {
@@ -231,3 +235,9 @@ async function redeployClientSite({ clinicaId, nombre, ciudad = '', direccion = 
 }
 
 module.exports = { deployClientSite, redeployClientSite };
+
+// Expuesto para scripts/test_plantilla_web.js. El test comprueba que NINGÚN
+// marcador se queda sin sustituir en ninguna página, y para eso tiene que usar
+// esta función y no una copia suya: una copia se separa del original sin que
+// nadie lo vea, que es como sobrevivió el fallo de las dos rutas de sync.
+module.exports.__test__ = { applyPlaceholders };
