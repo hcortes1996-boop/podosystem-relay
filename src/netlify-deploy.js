@@ -60,7 +60,46 @@ function applyPlaceholders(content, vars) {
     .replace(/\{\{CLINICA_LOGO_URL\}\}/g,         vars.logoUrl || 'images/logo.png');
 }
 
-function buildZip(vars) {
+/**
+ * Las variables de una clínica a partir de sus cuatro datos.
+ *
+ * Estaba ESCRITA DOS VECES, palabra por palabra, en `deployClientSite` y en
+ * `redeployClientSite`. Es el mismo patrón que costó las horas ofertadas dentro de
+ * franjas reservadas del 11-08-2026: dos copias de la misma lógica que se separan
+ * sin que nadie lo vea. Ahora hay una sola, y la usan los dos caminos.
+ */
+function construirVars({ clinicaId, nombre, ciudad = '', direccion = '', telefono = '' }) {
+  const teleRaw = String(telefono || '').replace(/\D/g, '');
+  const partes  = String(nombre || '').trim().split(/\s+/);
+  const nombreHeader = partes.length >= 3
+    ? `${partes.slice(0, -1).join(' ')}<br><strong>${partes[partes.length - 1]}</strong>`
+    : `<strong>${nombre}</strong>`;
+
+  const colors    = clinicaColors(nombre);
+  const relayBase = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
+
+  return {
+    clinicaId,
+    nombre,
+    nombreHeader,
+    ciudad:      ciudad    || 'su ciudad',
+    direccion:   direccion || '',
+    telefono:    telefono  || 'Sin teléfono',
+    telefonoRaw: teleRaw   || '000000000',
+    descripcion: `Podología en ${ciudad || nombre}`,
+    color1:      colors.color1,
+    color2:      colors.color2,
+    colorAccent: colors.accent,
+    logoUrl:     `${relayBase}/api/clinicas/${clinicaId}/logo`,
+  };
+}
+
+/**
+ * El sitio entero como mapa `ruta → Buffer`, ya sustituido. Lo usan el ZIP que sube
+ * a Netlify y el generador local de `scripts/generar-web-clinica.js`: si fueran dos
+ * recorridos distintos, lo que se revisa en local dejaría de ser lo que se publica.
+ */
+function construirFicheros(vars) {
   const files = {};
 
   function addDir(dir, prefix) {
@@ -82,9 +121,14 @@ function buildZip(vars) {
     }
   }
 
+  if (!fs.existsSync(TEMPLATE_DIR)) throw new Error(`web-template no encontrado en: ${TEMPLATE_DIR}`);
   addDir(TEMPLATE_DIR, '');
   files['_redirects'] = Buffer.from('/  /cita.html  301\n');
-  return Buffer.from(zipSync(files));
+  return files;
+}
+
+function buildZip(vars) {
+  return Buffer.from(zipSync(construirFicheros(vars)));
 }
 
 async function netlifyPost(path_, token, body, contentType = 'application/json') {
@@ -128,30 +172,8 @@ async function deployClientSite({ clinicaId, nombre, ciudad = '', direccion = ''
   if (!token) throw new Error('NETLIFY_TOKEN no configurado en Railway');
   console.log(`[netlify] Token OK (${token.slice(0,6)}...)`);
 
-  const slug    = toSlug(nombre);
-  const teleRaw = telefono.replace(/\D/g, '');
-
-  const partes = nombre.trim().split(/\s+/);
-  const nombreHeader = partes.length >= 3
-    ? `${partes.slice(0, -1).join(' ')}<br><strong>${partes[partes.length - 1]}</strong>`
-    : `<strong>${nombre}</strong>`;
-
-  const colors = clinicaColors(nombre);
-  const relayBase = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
-  const vars = {
-    clinicaId,
-    nombre,
-    nombreHeader,
-    ciudad:       ciudad    || 'su ciudad',
-    direccion:    direccion || '',
-    telefono:     telefono  || 'Sin teléfono',
-    telefonoRaw:  teleRaw   || '000000000',
-    descripcion:  `Podología en ${ciudad || nombre}`,
-    color1:       colors.color1,
-    color2:       colors.color2,
-    colorAccent:  colors.accent,
-    logoUrl:      `${relayBase}/api/clinicas/${clinicaId}/logo`,
-  };
+  const slug = toSlug(nombre);
+  const vars = construirVars({ clinicaId, nombre, ciudad, direccion, telefono });
 
   console.log(`[netlify] TEMPLATE_DIR: ${TEMPLATE_DIR}`);
   const templateExists = fs.existsSync(TEMPLATE_DIR);
@@ -198,29 +220,7 @@ async function redeployClientSite({ clinicaId, nombre, ciudad = '', direccion = 
   if (!token) throw new Error('NETLIFY_TOKEN no configurado en Railway');
   if (!netlifyId) throw new Error('netlifyId requerido para redeploy');
 
-  const teleRaw = telefono.replace(/\D/g, '');
-  const partes  = nombre.trim().split(/\s+/);
-  const nombreHeader = partes.length >= 3
-    ? `${partes.slice(0, -1).join(' ')}<br><strong>${partes[partes.length - 1]}</strong>`
-    : `<strong>${nombre}</strong>`;
-
-  const colors   = clinicaColors(nombre);
-  const relayBase = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
-  const vars = {
-    clinicaId,
-    nombre,
-    nombreHeader,
-    ciudad:      ciudad    || 'su ciudad',
-    direccion:   direccion || '',
-    telefono:    telefono  || 'Sin teléfono',
-    telefonoRaw: teleRaw   || '000000000',
-    descripcion: `Podología en ${ciudad || nombre}`,
-    color1:      colors.color1,
-    color2:      colors.color2,
-    colorAccent: colors.accent,
-    logoUrl:     `${relayBase}/api/clinicas/${clinicaId}/logo`,
-  };
-
+  const vars = construirVars({ clinicaId, nombre, ciudad, direccion, telefono });
   const zipBuffer = buildZip(vars);
   console.log(`[netlify:redeploy] ZIP generado: ${zipBuffer.length} bytes → site ${netlifyId}`);
 
@@ -234,7 +234,7 @@ async function redeployClientSite({ clinicaId, nombre, ciudad = '', direccion = 
   if (!ok) throw new Error(`Netlify redeploy HTTP ${status}: ${JSON.stringify(data)}`);
 }
 
-module.exports = { deployClientSite, redeployClientSite };
+module.exports = { deployClientSite, redeployClientSite, construirVars, construirFicheros };
 
 // Expuesto para scripts/test_plantilla_web.js. El test comprueba que NINGÚN
 // marcador se queda sin sustituir en ninguna página, y para eso tiene que usar

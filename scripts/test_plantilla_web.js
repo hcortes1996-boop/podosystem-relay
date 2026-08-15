@@ -91,5 +91,60 @@ console.log('\n── cita.html no se ha tocado ──');
      'la página de reservas no sabe nada del token — sigue siendo la de siempre');
 }
 
+console.log('\n── Las variables se derivan una sola vez para los dos caminos ──');
+{
+  // `construirVars` estaba ESCRITA DOS VECES, palabra por palabra, en
+  // deployClientSite y en redeployClientSite. Este bloque fija lo que produce, para
+  // que al haberla unificado no haya cambiado nada por el camino.
+  //
+  // Los valores son los de MERINO, comprobados contra su web viva el 15-08-2026:
+  // los tres colores salen de un hash del nombre, así que acertarlos prueba que la
+  // derivación entera sigue igual.
+  const v = deploy.construirVars({
+    clinicaId: 'bhy3fWaqW0', nombre: 'CLINICA DEL PIE MERINO',
+    ciudad: 'DOS HERMANAS', telefono: '675565440',
+  });
+  ok(v.color1 === 'hsl(230,  45%, 12%)', 'color1 como en la web viva de Merino', v.color1);
+  ok(v.color2 === 'hsl(250, 50%, 22%)',  'color2 igual', v.color2);
+  ok(v.colorAccent === 'hsl(10, 35%, 18%)', 'accent igual', v.colorAccent);
+  ok(v.nombreHeader === 'CLINICA DEL PIE<br><strong>MERINO</strong>',
+     'el nombre del header se parte igual que en la web viva', v.nombreHeader);
+  ok(v.telefonoRaw === '675565440', 'el teléfono se limpia igual', v.telefonoRaw);
+  ok(v.descripcion === 'Podología en DOS HERMANAS', 'la descripción se compone igual', v.descripcion);
+  ok(v.logoUrl.endsWith('/api/clinicas/bhy3fWaqW0/logo'), 'el logo apunta al relay', v.logoUrl);
+  ok(v.direccion === '', 'sin dirección queda vacía, no «undefined»');
+}
+{
+  // Sin datos no puede reventar: una clínica recién dada de alta puede no tener
+  // ciudad ni teléfono todavía.
+  const v = deploy.construirVars({ clinicaId: 'x', nombre: 'Clinica Sola' });
+  ok(v.ciudad === 'su ciudad', 'sin ciudad hay un texto de relleno, no un hueco');
+  ok(v.telefono === 'Sin teléfono' && v.telefonoRaw === '000000000', 'y sin teléfono también');
+  ok(v.nombreHeader === '<strong>Clinica Sola</strong>',
+     'un nombre de dos palabras no se parte', v.nombreHeader);
+}
+
+console.log('\n── El sitio que se genera es el que se sube ──');
+{
+  // `construirFicheros` la usan el ZIP de Netlify y scripts/generar-web-clinica.js.
+  // Si fueran dos recorridos distintos, lo que se revisa en local dejaría de ser lo
+  // que se publica.
+  const f = deploy.construirFicheros(VARS);
+  const rutas = Object.keys(f).sort();
+  ok(rutas.includes('cita.html'), 'lleva cita.html');
+  ok(rutas.includes('gestionar.html'), 'lleva gestionar.html — la página de anulación');
+  ok(rutas.includes('_redirects'), 'y el _redirects que manda la raíz a cita.html');
+  ok(String(f['_redirects']).includes('/cita.html'), 'la raíz sigue apuntando a la página de citas');
+  ok(rutas.some(r => r.startsWith('css/')) && rutas.some(r => r.startsWith('images/')),
+     'y los assets, o la página saldría sin estilos');
+
+  let conMarcadores = [];
+  for (const [r, buf] of Object.entries(f)) {
+    if (r.endsWith('.html') && /\{\{[A-Z_0-9]+\}\}/.test(String(buf))) conMarcadores.push(r);
+  }
+  ok(conMarcadores.length === 0,
+     'NINGUNA página se sube con marcadores sin sustituir', conMarcadores.join(', '));
+}
+
 console.log(`\n${pasados} pasados, ${fallados} fallados`);
 process.exit(fallados ? 1 : 0);
