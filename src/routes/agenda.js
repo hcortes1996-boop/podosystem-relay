@@ -16,6 +16,7 @@
 const router = require('express').Router();
 const auth   = require('../middleware/auth');
 const { generarToken, hashToken, puedeAnular, vistaPublica, PLAZO_HORAS } = require('../lib/anulacion');
+const { avisarSinEsperar } = require('../lib/aviso-anulacion');
 
 // Límite propio para los endpoints que abre el paciente desde el enlace. Más
 // holgado que el de reservar (aquí es normal abrir el enlace varias veces: mirarlo,
@@ -1191,6 +1192,10 @@ router.post('/cita/:token/anular', limitePublico, (req, res) => {
     req.db.prepare(`UPDATE reservas SET intentoAnularEn = ?, intentoAnularNota = ? WHERE id = ?`)
       .run(new Date().toISOString(), motivo || null, reserva.id);
     console.warn(`⚠️ [anular] intento fuera de plazo — ${reserva.clinicaId} ${reserva.fecha} ${reserva.hora} (${plazo.motivo})`);
+    // Este es el aviso que más valor tiene de los dos: la cita sigue en pie y el
+    // paciente probablemente no viene. Va sin esperar — si Expo falla, el intento ya
+    // está guardado y el PC lo bajará igual por /reservas-gestionadas.
+    avisarSinEsperar(req.db, { reserva, tipo: 'intento', motivo });
     return res.status(409).json({
       ok: false,
       motivo: plazo.motivo,
@@ -1215,6 +1220,11 @@ router.post('/cita/:token/anular', limitePublico, (req, res) => {
   `).run(ahora, motivo || null, ahora, reserva.id);
 
   const actualizada = req.db.prepare('SELECT * FROM reservas WHERE id = ?').get(reserva.id);
+
+  // Informativo: el hueco ya está libre y no hay nada que decidir. Se dispara después
+  // del UPDATE —nunca antes— para no avisar de una anulación que no llegó a guardarse.
+  avisarSinEsperar(req.db, { reserva: actualizada, tipo: 'anulada', motivo });
+
   res.json({
     ok: true,
     cita: vistaPublica(actualizada, clinica, puedeAnular(actualizada, zonaHoraria)),
