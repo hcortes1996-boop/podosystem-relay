@@ -243,6 +243,24 @@ function initDB() {
   // v2.2+ — Multi-podólogo (Plan Red web)
   try { db.exec('ALTER TABLE reservas ADD COLUMN podologoId TEXT'); } catch (_) {}
 
+  // 8.20 bloque D — Vetos de reserva online.
+  //
+  // Solo huellas: sha256(telefono|nombre) recortado. El relay NUNCA ve el nombre ni
+  // el teléfono del paciente vetado — las 5.458 fichas viven solo en el PC y subirlas
+  // aquí para poder vetarlas empeoraría la privacidad a cambio de muy poco.
+  //
+  // La huella lleva teléfono Y nombre a propósito: 364 teléfonos de la base real los
+  // comparten varias fichas (hasta seis en un fijo familiar), y vetar el número a
+  // secas dejaría sin reservar a media familia por lo que hizo una. Ver veto_web.js.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS vetos_web (
+      clinicaId  TEXT NOT NULL REFERENCES clinicas(id) ON DELETE CASCADE,
+      huella     TEXT NOT NULL,
+      creadoEn   TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      PRIMARY KEY (clinicaId, huella)
+    );
+  `);
+
   // Pieza 6.0 — Recordatorios cloud (push notifications a APK fuera de red local PC).
   // Tres tablas: tokens registrados por la APK, configuracion sincronizada del PC,
   // log de envios para idempotencia diaria.

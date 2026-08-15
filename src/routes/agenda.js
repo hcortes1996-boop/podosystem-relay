@@ -46,7 +46,7 @@ const limitePublico = process.env.NODE_ENV === 'test'
 //   }
 // }
 router.put('/sync-agenda', auth, (req, res) => {
-  const { config, citasOcupadas, podologos, citasOcupadasPorPodologo, ventana } = req.body;
+  const { config, citasOcupadas, podologos, citasOcupadasPorPodologo, ventana, vetos } = req.body;
   if (!config) return res.status(400).json({ ok: false, error: 'Falta config' });
 
   // Incidente 08-2026 — un envío vacío NO puede borrar la ocupación existente.
@@ -106,6 +106,27 @@ router.put('/sync-agenda', auth, (req, res) => {
     }
   });
   if (!conservarOcupacion) insertAllOcupadas(citasOcupadas || []);
+
+  // 8.20 bloque D — Lista de vetos de reserva online.
+  //
+  // Al revés que la ocupación: aquí una lista vacía SÍ borra. Los dos errores no
+  // valen lo mismo — conservar ocupación vieja evita dobles citas, pero conservar
+  // vetos viejos deja fuera a pacientes que ya no lo están. Cuando hay duda, se falla
+  // del lado de NO bloquear a nadie.
+  //
+  // `undefined` (un PC anterior a esta versión) no toca nada; `[]` limpia.
+  if (Array.isArray(vetos)) {
+    const insVeto = req.db.prepare('INSERT OR IGNORE INTO vetos_web (clinicaId, huella) VALUES (?,?)');
+    const reemplazar = req.db.transaction((arr) => {
+      req.db.prepare('DELETE FROM vetos_web WHERE clinicaId = ?').run(req.clinicaId);
+      for (const h of arr) {
+        // Solo huellas con la forma esperada. Si llega otra cosa se descarta en vez
+        // de guardarse: una huella basura no veta a nadie, pero ensucia la tabla.
+        if (typeof h === 'string' && /^[0-9a-f]{32}$/.test(h)) insVeto.run(req.clinicaId, h);
+      }
+    });
+    reemplazar(vetos);
+  }
 
   // Pieza 3.3 — Upsert podologos_publicos si viene en el payload
   if (Array.isArray(podologos)) {
@@ -696,9 +717,38 @@ router.post('/reservar-slot', (req, res) => {
   }
 
   const clinica = req.db
-    .prepare('SELECT id FROM clinicas WHERE id = ? AND activa = 1')
+    .prepare('SELECT id, telefono FROM clinicas WHERE id = ? AND activa = 1')
     .get(clinicaId);
   if (!clinica) return res.status(400).json({ ok: false, error: 'Clínica no encontrada' });
+
+  // 8.20 bloque D — ¿está vetado este paciente para reservar online?
+  //
+  // Va ANTES de la transacción a propósito: es una lectura y no debe complicar el
+  // bloqueo atómico, que es lo más delicado de este endpoint.
+  //
+  // No se le dice que está vetado. Se le dice que hay citas pendientes de resolver y
+  // se le deriva al teléfono, que es donde una persona puede explicarlo con tacto.
+  // Un mensaje acusatorio por escrito con alguien que quizá no sepa que faltó es una
+  // discusión en el mostrador, y no arregla nada.
+  //
+  // Si algo falla aquí se DEJA PASAR. Un error del veto no puede dejar sin cita a
+  // nadie: bloquear a quien no lo merece es peor que no bloquear a quien sí.
+  try {
+    const lista = req.db.prepare('SELECT huella FROM vetos_web WHERE clinicaId = ?')
+      .all(clinicaId).map(r => r.huella);
+    if (lista.length && require('../lib/veto_web').estaVetada(lista, telefono, nombre)) {
+      console.warn(`🚫 [reservar-slot] veto — ${clinicaId} ${fecha} ${hora}`);
+      return res.status(403).json({
+        ok: false,
+        vetado: true,
+        telefonoClinica: clinica.telefono || null,
+        error: 'No podemos completar la reserva online: hay citas pendientes de resolver. '
+             + `Llámenos${clinica.telefono ? ` al ${clinica.telefono}` : ''} y se lo damos sin problema.`,
+      });
+    }
+  } catch (e) {
+    console.error('[reservar-slot] el veto falló, se deja pasar:', e.message);
+  }
 
   // Pieza 3.3 — si viene podologoId, validar que existe + visible + activo
   if (podologoId) {
