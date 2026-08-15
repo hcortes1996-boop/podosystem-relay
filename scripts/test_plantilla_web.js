@@ -91,6 +91,25 @@ console.log('\n── cita.html no se ha tocado ──');
      'la página de reservas no sabe nada del token — sigue siendo la de siempre');
 }
 
+console.log('\n── Una clínica sin podólogos publicados PUEDE reservar ──');
+{
+  // El fallo, detectado en Merino el 15-08-2026 con la página ya desplegada:
+  // `podologoSeleccionado === null` significaba a la vez «el paciente eligió
+  // Cualquier disponible» y «esta clínica no publica podólogos». Con 0 publicados,
+  // pickSlot preguntaba por los disponibles, recibía [] —correctamente— y contestaba
+  // «esa hora ya no está disponible» a CUALQUIER hora libre. Ninguna clínica sin
+  // Plan Red podía coger cita, y son la mayoría.
+  const c = fs.readFileSync(path.join(PLANTILLA, 'cita.html'), 'utf-8');
+  ok(/if\s*\(\s*podologoSeleccionado\s*\|\|\s*!multiPodologo\s*\)/.test(c),
+     'pickSlot distingue «no hay podólogos» de «cualquiera vale»');
+  ok(c.includes('multiPodologo = podologos.length >= 2'),
+     'y multiPodologo sigue siendo la bandera que lo decide');
+  // Con 1 se autoselecciona; con 0 va al flujo clásico. Ninguna de las dos debe
+  // acabar consultando podologos-disponibles.
+  ok(/if\s*\(podologos\.length === 1\)\s*podologoSeleccionado = podologos\[0\]\.id/.test(c),
+     'con un solo podólogo se sigue autoseleccionando');
+}
+
 console.log('\n── Las variables se derivan una sola vez para los dos caminos ──');
 {
   // `construirVars` estaba ESCRITA DOS VECES, palabra por palabra, en

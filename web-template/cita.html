@@ -1699,8 +1699,19 @@
       document.querySelectorAll('.wg-slot.selected').forEach(el => el.classList.remove('selected'));
       cellEl.classList.add('selected');
 
-      if (podologoSeleccionado) {
-        // Caso normal: ya hay podólogo elegido → avanzar directo
+      // `podologoSeleccionado === null` significaba DOS cosas distintas: «el paciente
+      // eligió Cualquier disponible» y «esta clínica no publica podólogos». Con 0
+      // publicados se caía en la rama de abajo, /api/podologos-disponibles devolvía []
+      // —correctamente, no hay ninguno— y TODA hora libre respondía «esa hora ya no
+      // está disponible». Ninguna clínica sin Plan Red podía reservar.
+      //
+      // `multiPodologo` (podologos.length >= 2) es la bandera que las separa, y ya
+      // existía: con 1 se autoselecciona arriba y con 0 hay que ir al flujo clásico,
+      // que manda `podologoId: null` — que es justo lo que espera el relay.
+      //
+      // Detectado en Merino el 15-08-2026, con la página ya desplegada.
+      if (podologoSeleccionado || !multiPodologo) {
+        // Podólogo ya elegido, o clínica que no usa podólogos → avanzar directo
         avanzarASummaryYStep2(fecha, hora);
         return;
       }
