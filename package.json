@@ -5,7 +5,8 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "check:netlify": "node scripts/check-netlify.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
