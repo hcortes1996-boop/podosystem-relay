@@ -123,6 +123,42 @@ setTimeout(async () => {
   }
 
   // ─────────────────────────────────────────────────────────────
+  console.log('\n── El teléfono llega aunque no esté en `clinicas` ──');
+  {
+    // Detectado por el portátil el 16-08-2026: `clinicas.telefono` solo lo rellena
+    // el alta por aprobación; el alta manual no, y así se crearon las clínicas
+    // antiguas (Merino entre ellas). Sin respaldo, el mensaje del veto le dice al
+    // paciente «llámenos» y NO le da número — y el teléfono es la única salida que
+    // le queda.
+    db.prepare('UPDATE clinicas SET telefono = NULL WHERE id = ?').run(CLINICA);
+    db.prepare(
+      'INSERT OR REPLACE INTO solicitudes_alta ' +
+      '(id, clinicaId, nombre_clinica, profesional, telefono, email, estado, creadaEn) ' +
+      "VALUES (?,?,?,?,?,?,'aprobada',?)"
+    ).run('sol_veto_1', CLINICA, 'Clinica Veto', 'Prueba QA',
+          '954999888', 'qa@ejemplo.es', new Date().toISOString());
+
+    await sync({ vetos: V.huellas('600111222', 'Juan Pérez Gil') });
+    const r = await reservar('Juan Pérez Gil', '600111222');
+    ok(r.status === 403, 'sigue vetando con el teléfono fuera de `clinicas`');
+    ok(r.body.telefonoClinica === '954999888',
+       'el teléfono se recupera de solicitudes_alta', `llegó ${r.body.telefonoClinica}`);
+    ok((r.body.error || '').includes('954999888'),
+       'y aparece dentro del mensaje que lee el paciente', r.body.error);
+
+    // Sin teléfono en ninguno de los dos sitios: el mensaje no puede quedar cojo.
+    db.prepare('DELETE FROM solicitudes_alta WHERE clinicaId = ?').run(CLINICA);
+    const r2 = await reservar('Juan Pérez Gil', '600111222');
+    ok(r2.status === 403 && r2.body.telefonoClinica === null,
+       'sin teléfono en ninguna parte devuelve null, no revienta');
+    ok(!/ al \s*\./.test(r2.body.error || '') && !(r2.body.error || '').includes('al undefined'),
+       'y el mensaje no queda con un «al» colgando', r2.body.error);
+
+    // Se restaura para los bloques siguientes.
+    db.prepare('UPDATE clinicas SET telefono = ? WHERE id = ?').run('954111222', CLINICA);
+  }
+
+  // ─────────────────────────────────────────────────────────────
   console.log('\n── Lo que motivó el diseño: la familia NO cae con él ──');
   {
     // 955665459 en la base real de Francisco: seis fichas, tres generaciones.

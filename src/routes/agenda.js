@@ -738,12 +738,15 @@ router.post('/reservar-slot', (req, res) => {
       .all(clinicaId).map(r => r.huella);
     if (lista.length && require('../lib/veto_web').estaVetada(lista, telefono, nombre)) {
       console.warn(`🚫 [reservar-slot] veto — ${clinicaId} ${fecha} ${hora}`);
+      // El teléfono es la ÚNICA salida que le queda a este paciente: si falta, el
+      // mensaje le manda llamar a ninguna parte. Ver telefonoDeClinica().
+      const tel = telefonoDeClinica(req.db, clinicaId, clinica.telefono);
       return res.status(403).json({
         ok: false,
         vetado: true,
-        telefonoClinica: clinica.telefono || null,
+        telefonoClinica: tel,
         error: 'No podemos completar la reserva online: hay citas pendientes de resolver. '
-             + `Llámenos${clinica.telefono ? ` al ${clinica.telefono}` : ''} y se lo damos sin problema.`,
+             + `Llámenos${tel ? ` al ${tel}` : ''} y se lo damos sin problema.`,
       });
     }
   } catch (e) {
@@ -1189,13 +1192,41 @@ router.put('/reservas/:id/pendiente', auth, (req, res) => {
      hoy no existe en ninguna parte.
    ══════════════════════════════════════════════════════════════════════════ */
 
+/**
+ * El teléfono de la clínica, mirando en los dos sitios donde puede estar.
+ *
+ * `clinicas.telefono` solo lo rellena el alta por aprobación (`admin.js:441`); el
+ * alta manual (`admin.js:253`) no lo pone, y así se crearon las clínicas antiguas
+ * —Merino entre ellas—. El dato sí está siempre en `solicitudes_alta`, que es de
+ * donde lo saca el redespliegue de la web.
+ *
+ * Sin este respaldo, los dos mensajes que le dicen al paciente «llámenos» se quedan
+ * SIN NÚMERO. Detectado por el portátil el 16-08-2026 en la respuesta de fuera de
+ * plazo; afectaba igual al mensaje del veto, que es peor porque ahí el teléfono es
+ * la única salida que le queda.
+ */
+function telefonoDeClinica(db, clinicaId, yaLeido) {
+  if (yaLeido && String(yaLeido).trim()) return String(yaLeido).trim();
+  try {
+    const alta = db.prepare(
+      'SELECT telefono FROM solicitudes_alta WHERE clinicaId = ? AND telefono IS NOT NULL ' +
+      "AND TRIM(telefono) <> '' ORDER BY creadaEn DESC LIMIT 1"
+    ).get(clinicaId);
+    return alta?.telefono?.trim() || null;
+  } catch (_) { return null; }
+}
+
 /** Busca por hash y devuelve también la clínica y su zona horaria. */
 function buscarPorToken(db, token) {
   if (!token || String(token).length < 16) return null;
   const reserva = db.prepare('SELECT * FROM reservas WHERE tokenHash = ?').get(hashToken(token));
   if (!reserva) return null;
-  const clinica = db.prepare('SELECT id, nombre, telefono FROM clinicas WHERE id = ?')
+  const fila = db.prepare('SELECT id, nombre, telefono FROM clinicas WHERE id = ?')
     .get(reserva.clinicaId);
+  // El teléfono puede no estar en `clinicas` — ver telefonoDeClinica().
+  const clinica = fila
+    ? { ...fila, telefono: telefonoDeClinica(db, reserva.clinicaId, fila.telefono) }
+    : fila;
   let zonaHoraria = 'Europe/Madrid';
   try {
     const cfg = db.prepare('SELECT zonaHoraria FROM recordatorios_config WHERE clinicaId = ?')
