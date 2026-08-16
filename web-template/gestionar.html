@@ -173,13 +173,15 @@
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ motivo: 'Intento de anulación desde la web' })
     }).then(function (r) { return r.json().catch(function(){ return {}; }); })
-      .then(function (d) {
-        if (d && d.avisoRegistrado) {
-          document.getElementById('registrado').innerHTML =
-            '<div class="aviso aviso--ok" style="margin:0">' +
-            'Hemos avisado a la clínica de que ha intentado anular su cita.</div>';
-        }
-      }).catch(function () { /* si falla, se queda solo el teléfono: no molesta */ });
+      // El intento SE SIGUE REGISTRANDO y la clínica lo ve en su aviso. Lo que ya no
+      // se hace es decírselo al paciente.
+      //
+      // Estaba puesto para que no sintiera que la web le ignoraba. Francisco lo tumbó
+      // el 16-08-2026 con mejor argumento: si sabe que la clínica ya está avisada,
+      // probablemente NO llame — y toda esta pantalla existe para que llame. Decirlo
+      // le quitaba el único motivo de descolgar el teléfono.
+      .then(function () { /* registrado en el servidor; al paciente no se le dice */ })
+      .catch(function () { /* si falla, se queda solo el teléfono: no molesta */ });
   }
 
   function pantallaPasada(c) {

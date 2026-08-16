@@ -75,9 +75,18 @@ console.log('\n── La página del paciente, por dentro ──');
   ]) {
     ok(g.includes(marca), `contempla el caso: ${desc}`);
   }
-  ok(g.includes('avisoRegistrado'),
-     'fuera de plazo, avisa al paciente de que se ha registrado su intento',
-     'sin esto cree que su gesto no ha servido y no llama');
+  // DECISIÓN INVERTIDA el 16-08-2026. Este test defendía lo contrario: que la página
+  // le dijera al paciente «hemos avisado a la clínica». Se puso para que no sintiera
+  // que la web le ignoraba.
+  //
+  // Francisco lo tumbó con mejor argumento: **si sabe que la clínica ya está avisada,
+  // no llama** — y toda esta pantalla existe para que llame. El intento se sigue
+  // registrando y la clínica lo sigue viendo; lo que se quita es contárselo a él.
+  ok(!/avisado a la clínica|hemos avisado/i.test(g),
+     'fuera de plazo NO le dice al paciente que la clínica ya está avisada',
+     'decírselo le quita el único motivo de descolgar el teléfono');
+  ok(/llámenos|llame a la clínica|Llamar al/i.test(g),
+     'y sí le dice claramente que llame');
   ok((g.match(/TELEFONO/g) || []).length >= 4,
      'ofrece el teléfono de la clínica en todas las salidas sin salida');
 }

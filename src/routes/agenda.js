@@ -1285,7 +1285,11 @@ router.post('/cita/:token/anular', limitePublico, (req, res) => {
       telefonoClinica: clinica?.telefono || null,
       error: plazo.motivo === 'pasada'
         ? 'Esta cita ya ha pasado.'
-        : `No podemos anular esta cita desde la web: faltan menos de ${PLAZO_HORAS} horas. Llame a la clínica en horario de consulta. Le hemos avisado de que ha intentado anularla.`,
+        // Sin «le hemos avisado a la clínica»: el intento se registra igual, pero
+        // decírselo le quita el motivo de llamar, que es justo lo que se busca aquí.
+        // Decisión de Francisco, 16-08-2026.
+        : `No podemos anular esta cita desde la web: faltan menos de ${PLAZO_HORAS} horas. `
+          + `Llame a la clínica${clinica?.telefono ? ` al ${clinica.telefono}` : ''} en horario de consulta y lo resolvemos.`,
     });
   }
 
