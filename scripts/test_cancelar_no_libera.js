@@ -120,5 +120,10 @@ setTimeout(async () => {
 
   console.log(`\n${pasados} pasados, ${fallados} fallados`);
   try { fs.unlinkSync(TMP); } catch {}
-  process.exit(fallados ? 1 : 0);
+  // Respiro antes de salir: sin el, process.exit() pillaba a las conexiones de fetch a
+  // medio cerrar y libuv abortaba en Windows con
+  //   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file srcwinasync.c
+  // El proceso salia con 127 DESPUES de pasar todas las comprobaciones: un test en verde
+  // que quien lo lanza ve en rojo. (Detectado el 27-08-2026.)
+  setTimeout(() => process.exit(fallados ? 1 : 0), 300);
 }, 2500);

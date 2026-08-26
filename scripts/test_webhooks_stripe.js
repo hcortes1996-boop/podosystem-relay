@@ -307,5 +307,10 @@ function check(name, cond, info) {
   const passed = results.filter(r => r.pass).length;
   const failed = results.filter(r => !r.pass).length;
   console.log(`\n=== ${passed} PASS / ${failed} FAIL / ${results.length} total ===`);
-  process.exit(failed === 0 ? 0 : 1);
+  // Respiro antes de salir: sin el, process.exit() pillaba a las conexiones de fetch a
+  // medio cerrar y libuv abortaba en Windows con
+  //   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file srcwinasync.c
+  // El proceso salia con 127 DESPUES de pasar todas las comprobaciones: un test en verde
+  // que quien lo lanza ve en rojo. (Detectado el 27-08-2026.)
+  setTimeout(() => process.exit(failed === 0 ? 0 : 1), 300);
 })().catch(e => { console.error('TEST CRASH:', e); process.exit(2); });

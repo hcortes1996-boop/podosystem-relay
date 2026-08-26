@@ -50,7 +50,8 @@ const enviar = (body) => fetch(`${BASE}/api/recuperacion/enviar-codigo`, {
 const BUENO = { licenseKey: LICENCIA, hardwareId: HW, email: 'destino@ejemplo.test', codigo: '123456' };
 
 (async () => {
-  await new Promise(r => setTimeout(r, 400));
+  // 900 ms como el resto de tests del relay: da tiempo a que el servidor levante.
+  await new Promise(r => setTimeout(r, 900));
 
   // Licencia de prueba, con su hardware ya registrado.
   const db = require('../src/db').abrir ? require('../src/db').abrir() : require('better-sqlite3')(TMP);
@@ -123,7 +124,13 @@ const BUENO = { licenseKey: LICENCIA, hardwareId: HW, email: 'destino@ejemplo.te
   ok(!capturado.includes('987654'), 'el código no se registra en el log', capturado.trim());
 
   console.log(`\n${fallados === 0 ? `✅ ${pasados} COMPROBACIONES EN VERDE` : `❌ ${fallados} FALLIDAS de ${pasados + fallados}`}`);
-  try { db.close(); } catch {}
+  // No se cierra `db`: el servidor tiene su propia conexión abierta sobre el mismo fichero.
+  // Y se deja un respiro antes de salir: sin él, `process.exit()` pillaba a las conexiones
+  // de `fetch` a medio cerrar y libuv abortaba en Windows con
+  //   Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c
+  // El proceso salía con 127 DESPUÉS de haber pasado las 18 comprobaciones — o sea, un test
+  // en verde que el runner veía en rojo.
   try { fs.unlinkSync(TMP); } catch {}
+  await new Promise(r => setTimeout(r, 300));
   process.exit(fallados === 0 ? 0 : 1);
 })();
