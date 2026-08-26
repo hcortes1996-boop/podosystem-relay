@@ -123,6 +123,74 @@ const BUENO = { licenseKey: LICENCIA, hardwareId: HW, email: 'destino@ejemplo.te
   console.log = original;
   ok(!capturado.includes('987654'), 'el código no se registra en el log', capturado.trim());
 
+  // ── Recuperar la apiKey de Citas Web ───────────────────────────────────────
+  //
+  // Hasta ahora la apiKey se entregaba UNA vez al dar de alta la clinica y no habia donde
+  // volver a consultarla: perder relay_config.json dejaba Citas Web muerta, y en silencio —
+  // el PC deja de sincronizar pero la web sigue ofertando horas. Es la mecanica de las
+  // dobles citas de agosto de 2026.
+  //
+  // Esto devuelve una CREDENCIAL por la red, asi que el liston es el de validar una
+  // licencia, con comprobacion de hardware incluida.
+  const pedirKey = (body) => fetch(`${BASE}/api/recuperacion/api-key`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  }).then(async r => ({ status: r.status, body: await r.json().catch(() => ({})) }));
+
+  console.log('\n── Recuperar la apiKey: quien NO puede ──');
+
+  db.prepare("UPDATE licencias SET hardwareId=? WHERE licenseKey=?").run(HW, LICENCIA);
+
+  r = await pedirKey({});
+  ok(r.status === 400, 'sin licenseKey → 400', `status ${r.status}`);
+
+  r = await pedirKey({ licenseKey: 'PODO-QUE-NO-EXISTE', hardwareId: HW });
+  ok(r.status === 404, 'licencia inexistente → 404', `status ${r.status}`);
+
+  r = await pedirKey({ licenseKey: LICENCIA, hardwareId: 'otro-equipo' });
+  ok(r.status === 403 && r.body.error === 'hardware_mismatch',
+    'licencia copiada a otro equipo → 403 (una licenseKey robada no basta)', JSON.stringify(r.body));
+
+  db.prepare("UPDATE licencias SET estado='blocked' WHERE licenseKey=?").run(LICENCIA);
+  r = await pedirKey({ licenseKey: LICENCIA, hardwareId: HW });
+  ok(r.status === 403, 'licencia bloqueada → 403', `status ${r.status}`);
+  db.prepare("UPDATE licencias SET estado='active' WHERE licenseKey=?").run(LICENCIA);
+
+  // Sin clinica asociada no se puede adivinar cual devolver.
+  r = await pedirKey({ licenseKey: LICENCIA, hardwareId: HW });
+  ok(r.status === 404 && /clínica|clinica/i.test(r.body.error || ''),
+    'licencia sin clínica asociada → 404 con motivo claro', JSON.stringify(r.body));
+
+  console.log('\n── Recuperar la apiKey: el caso bueno ──');
+
+  const CLINICA_ID = 'clinTest01';
+  const API_KEY = 'k_de_prueba_recuperacion';
+  db.prepare('INSERT INTO clinicas (id, nombre, apiKey, activa) VALUES (?, ?, ?, 1)')
+    .run(CLINICA_ID, 'Clínica de prueba', API_KEY);
+  db.prepare('UPDATE licencias SET clinicaId=? WHERE licenseKey=?').run(CLINICA_ID, LICENCIA);
+
+  r = await pedirKey({ licenseKey: LICENCIA, hardwareId: HW });
+  ok(r.status === 200 && r.body.ok === true, 'licencia válida → 200', JSON.stringify(r.body).slice(0, 80));
+  ok(r.body.clinicaId === CLINICA_ID, 'devuelve la clinicaId correcta', r.body.clinicaId);
+  ok(r.body.apiKey === API_KEY, 'y la apiKey de ESA clínica');
+
+  db.prepare("UPDATE clinicas SET activa=0 WHERE id=?").run(CLINICA_ID);
+  r = await pedirKey({ licenseKey: LICENCIA, hardwareId: HW });
+  ok(r.status === 403, 'una clínica desactivada no entrega su clave', `status ${r.status}`);
+  db.prepare("UPDATE clinicas SET activa=1 WHERE id=?").run(CLINICA_ID);
+
+  console.log('\n── La apiKey tampoco acaba en el log ──');
+  {
+    const original = console.log;
+    let capturado = '';
+    console.log = (...a) => { capturado += a.join(' ') + '\n'; };
+    await pedirKey({ licenseKey: LICENCIA, hardwareId: HW });
+    console.log = original;
+    ok(!capturado.includes(API_KEY), 'la clave no se registra', capturado.trim());
+    ok(capturado.includes(CLINICA_ID), 'pero sí queda constancia de a quién se entregó', capturado.trim());
+  }
+
   console.log(`\n${fallados === 0 ? `✅ ${pasados} COMPROBACIONES EN VERDE` : `❌ ${fallados} FALLIDAS de ${pasados + fallados}`}`);
   // No se cierra `db`: el servidor tiene su propia conexión abierta sobre el mismo fichero.
   // Y se deja un respiro antes de salir: sin él, `process.exit()` pillaba a las conexiones

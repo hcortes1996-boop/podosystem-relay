@@ -134,4 +134,87 @@ router.post('/recuperacion/enviar-codigo', limitePorIP, limitePorLicencia, async
   }
 });
 
+/**
+ * POST /api/recuperacion/api-key   (licenseKey + hardwareId)
+ *
+ * Devuelve al PC su propia `clinicaId` y `apiKey` de Citas Web.
+ *
+ * ── Por qué hace falta ───────────────────────────────────────────────────────
+ *
+ * Hasta ahora la `apiKey` se entregaba UNA sola vez, al dar de alta la clínica
+ * (`admin.js:296`), y no había ningún sitio donde volver a consultarla: `GET /api/clinicas`
+ * devuelve id, nombre, webUrl, netlifyId, fechas y código de activación — la clave no.
+ * Recuperarla exigía entrar en la base de datos de Railway a mano.
+ *
+ * Eso convertía `relay_config.json` en un punto único de fallo sin repuesto: si una clínica
+ * lo perdía —disco roto, reinstalación limpia, PC nuevo— Citas Web se quedaba muerta. Y de
+ * la peor manera, en silencio: el PC deja de sincronizar pero la web sigue ofertando horas y
+ * los pacientes siguen reservando. Es la mecánica de las dobles citas de agosto de 2026.
+ *
+ * Con esto, perder el fichero deja de ser grave: la aplicación vuelve a pedirla y sigue.
+ *
+ * ── Y es lo que permite cifrar la apiKey en el cliente ───────────────────────
+ *
+ * Cifrarla con el llavero del sistema ata el dato al equipo. Sin este endpoint, restaurar
+ * una copia en otro PC dejaría una clave indescifrable e irrecuperable. Con él, ese caso se
+ * resuelve solo. Por eso este endpoint va ANTES que el cifrado, no después.
+ *
+ * ── El listón ────────────────────────────────────────────────────────────────
+ *
+ * Esto devuelve una credencial por la red, así que se pide lo mismo que para validar una
+ * licencia, incluida la comprobación de hardware: una `licenseKey` copiada no sirve desde
+ * otro equipo. El límite es más estrecho que el del correo, y la clave nunca se registra.
+ */
+const limiteApiKeyPorIP = enTest ? sinLimite : rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Demasiadas solicitudes. Inténtalo dentro de una hora.' },
+});
+
+const limiteApiKeyPorLicencia = enTest ? sinLimite : rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => `apikey:${String(req.body?.licenseKey || 'sin-licencia')}`,
+  message: { ok: false, error: 'Demasiadas solicitudes para esta licencia. Inténtalo dentro de una hora.' },
+});
+
+router.post('/recuperacion/api-key', limiteApiKeyPorIP, limiteApiKeyPorLicencia, (req, res) => {
+  const { licenseKey, hardwareId } = req.body || {};
+
+  if (!licenseKey) return res.status(400).json({ ok: false, error: 'licenseKey requerida' });
+
+  const lic = req.db.prepare('SELECT * FROM licencias WHERE licenseKey = ?').get(licenseKey);
+  if (!lic) return res.status(404).json({ ok: false, error: 'Licencia no encontrada' });
+  if (lic.estado === 'blocked') return res.status(403).json({ ok: false, error: 'Licencia bloqueada' });
+
+  if (lic.hardwareId && hardwareId && lic.hardwareId !== hardwareId) {
+    return res.status(403).json({ ok: false, error: 'hardware_mismatch' });
+  }
+
+  if (!lic.clinicaId) {
+    // Licencia sin clínica asociada: no se puede saber qué clave devolver, y desde luego no
+    // se va a adivinar. Pasa con altas hechas antes de que el flujo enlazara las dos cosas.
+    return res.status(404).json({
+      ok: false,
+      error: 'Esta licencia no tiene ninguna clínica de Citas Web asociada.',
+    });
+  }
+
+  const clinica = req.db
+    .prepare('SELECT id, apiKey, activa FROM clinicas WHERE id = ?')
+    .get(lic.clinicaId);
+
+  if (!clinica) return res.status(404).json({ ok: false, error: 'La clínica asociada ya no existe' });
+  if (!clinica.activa) return res.status(403).json({ ok: false, error: 'Clínica desactivada' });
+
+  // Se registra QUE se ha entregado y a quién, nunca la clave.
+  console.log(`[recuperacion] apiKey entregada · licencia ${String(licenseKey).slice(0, 8)}… · clinica ${clinica.id}`);
+
+  return res.json({ ok: true, clinicaId: clinica.id, apiKey: clinica.apiKey });
+});
+
 module.exports = router;
