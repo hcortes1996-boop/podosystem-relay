@@ -21,8 +21,46 @@ function getClient() {
  * Eso es lo que se arregla aquí: no la variable —que es legítima— sino que fuera INVISIBLE.
  * Ahora el relay lo grita al arrancar, así que sale en el log de cada despliegue.
  */
-function avisarOverride() {
+/**
+ * Devuelve la dirección a la que desviar TODO el correo, o null.
+ *
+ * ── Por qué hace falta un segundo interruptor ────────────────────────────────
+ *
+ * El 27-08-2026 `DEV_EMAIL_OVERRIDE` estaba activa en producción y **no había forma de
+ * encontrarla**: no aparecía en la lista de variables del servicio en Railway, ni en el Raw
+ * Editor, ni en las variables compartidas del proyecto, ni tiene sección el despliegue
+ * activo. Medido con `/admin/api/diagnostico`: el proceso la tenía, con 21 caracteres.
+ *
+ * Buscarla podía llevar horas. Pero el daño no lo hace la variable: lo hace que el código
+ * la obedezca. Así que se invierte el valor por defecto — **desviar el correo de todos los
+ * clientes exige pedirlo dos veces**:
+ *
+ *     DEV_EMAIL_OVERRIDE=alguien@ejemplo.com
+ *     DEV_EMAIL_OVERRIDE_CONFIRMAR=si
+ *
+ * Sin la segunda, la primera se ignora y se avisa. Y como la segunda no existe en ninguna
+ * parte, el desvío se corta en cuanto esto se despliegue, sin necesidad de encontrar nada.
+ *
+ * No es un apaño: una función pensada para desarrollo no debería poder tumbar la
+ * recuperación de contraseña de un cliente por estar puesta y olvidada.
+ */
+function direccionDesvio() {
   const override = process.env.DEV_EMAIL_OVERRIDE?.trim();
+  if (!override) return null;
+
+  const confirmado = ['si', 'sí', 'yes', '1', 'true']
+    .includes(String(process.env.DEV_EMAIL_OVERRIDE_CONFIRMAR || '').trim().toLowerCase());
+
+  if (!confirmado) {
+    console.warn('⚠️  [email] DEV_EMAIL_OVERRIDE está definida pero SE IGNORA: falta ' +
+                 'DEV_EMAIL_OVERRIDE_CONFIRMAR. Los correos van a sus destinatarios reales.');
+    return null;
+  }
+  return override;
+}
+
+function avisarOverride() {
+  const override = direccionDesvio();
   if (!override) return;
   const linea = '─'.repeat(72);
   console.warn('\n' + linea);
@@ -45,7 +83,7 @@ async function sendMail({ to, subject, html }) {
     return;
   }
 
-  const override      = process.env.DEV_EMAIL_OVERRIDE?.trim();
+  const override      = direccionDesvio();
   const actualTo      = override || to;
   const actualSubject = override ? `[TEST] ${subject}` : subject;
 

@@ -132,11 +132,21 @@ router.get('/api/diagnostico', authAdmin, (req, res) => {
     ahora: new Date().toISOString(),
     correo: {
       // El que motivó todo esto.
-      overrideActivo:  hay('DEV_EMAIL_OVERRIDE'),
-      overrideLongitud: hay('DEV_EMAIL_OVERRIDE') ? process.env.DEV_EMAIL_OVERRIDE.trim().length : 0,
+      overrideDefinida:  hay('DEV_EMAIL_OVERRIDE'),
+      overrideLongitud:  hay('DEV_EMAIL_OVERRIDE') ? process.env.DEV_EMAIL_OVERRIDE.trim().length : 0,
+      // Lo que de verdad importa: si el correo SE DESVÍA. Desde el 27-08 hace falta además
+      // DEV_EMAIL_OVERRIDE_CONFIRMAR, para que una variable olvidada no tumbe la
+      // recuperación de contraseña de un cliente.
+      desviaElCorreo:    hay('DEV_EMAIL_OVERRIDE') && ['si','sí','yes','1','true']
+                           .includes(String(process.env.DEV_EMAIL_OVERRIDE_CONFIRMAR||'').trim().toLowerCase()),
       resendConfigurado: hay('RESEND_API_KEY'),
       remitente: process.env.SMTP_FROM || '(por defecto: PodoSystem <info@podosystem.es>)',
     },
+    // Solo los NOMBRES, nunca los valores. Sirve para encontrar una variable que la interfaz
+    // de Railway no enseña — que es exactamente lo que pasó el 27-08.
+    variables: Object.keys(process.env)
+      .filter(k => !/^(RAILWAY_|npm_|NODE_|PATH$|HOME$|HOSTNAME$|PWD$|SHLVL$|_$|TERM|LANG|LC_)/.test(k))
+      .sort(),
     entorno: {
       nodeEnv: process.env.NODE_ENV || '(sin definir)',
       // Para saber qué código corre de verdad, sin fiarse de lo que uno cree haber desplegado.
