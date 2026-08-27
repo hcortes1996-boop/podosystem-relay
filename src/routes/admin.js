@@ -71,11 +71,28 @@ router.get('/index.html', (_req, res) => {
 // ── Verificar licencia desde Electron (sin auth admin) ───────────────────────
 
 router.post('/api/licencias/verificar', (req, res) => {
-  const { licenseKey, hardwareId, instanceId } = req.body;
+  const { licenseKey, hardwareId, instanceId, version } = req.body;
   if (!licenseKey) return res.status(400).json({ ok: false, error: 'licenseKey requerida' });
   const lic = req.db.prepare('SELECT * FROM licencias WHERE licenseKey = ?').get(licenseKey);
   if (!lic) return res.status(404).json({ ok: false, error: 'Licencia no encontrada' });
   if (lic.estado === 'blocked') return res.status(403).json({ ok: false, error: 'Licencia bloqueada' });
+
+  // Vista de flota (27-08-2026). El PC dice qué versión corre; aquí se anota junto a cuándo
+  // se la vio. Un cliente atascado en una versión vieja se detecta antes de que llame.
+  //
+  // Va aparte del resto de UPDATEs y con su propio try: que esto falle NUNCA puede impedir
+  // que una licencia se valide. Es telemetría, no autorización.
+  // Tiene que PARECER una versión: 3.5.1, 3.5.1-beta.2. Un patrón laxo dejaba pasar
+  // cualquier cosa —un número suelto, por ejemplo— y ensuciaba la columna del panel, que es
+  // justamente donde hay que poder confiar de un vistazo.
+  if (typeof version === 'string' && /^\d{1,3}\.\d{1,3}\.\d{1,3}(-[\w.]{1,16})?$/.test(version)) {
+    try {
+      req.db.prepare('UPDATE licencias SET version_instalada = ?, version_vista_en = ? WHERE id = ?')
+        .run(String(version), new Date().toISOString(), lic.id);
+    } catch (e) {
+      console.error('[licencias] no se pudo anotar la version:', e.message);
+    }
+  }
   // Registrar hardware la primera vez
   if (!lic.hardwareId && hardwareId) {
     req.db.prepare('UPDATE licencias SET hardwareId=?, instanceId=?, estado=?, activadaEn=?, ultimaValidacion=? WHERE id=?')

@@ -110,12 +110,13 @@
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Fuente</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Suscripción ID</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Activada</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Versión</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Últ. validación</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Acciones</th>
             </tr>
           </thead>
           <tbody id="licencias-tbody" class="divide-y divide-gray-50">
-            <tr><td colspan="9" class="px-4 py-6 text-center text-gray-400 text-sm">Cargando…</td></tr>
+            <tr><td colspan="10" class="px-4 py-6 text-center text-gray-400 text-sm">Cargando…</td></tr>
           </tbody>
         </table>
       </div>
@@ -484,6 +485,20 @@ async function loadLicencias() {
     const cls = map[p] || map.clinica;
     return `<span class="px-2 py-1 rounded-full text-xs font-semibold ${cls}">${esc(p || 'clinica')}</span>`;
   };
+  // Vista de flota (27-08-2026): que version corre cada instalacion y cuando se la vio.
+  // Se pinta en ambar si hace mas de 14 dias que no da señales — un cliente atascado se ve
+  // ANTES de que llame, que es justo lo que fallo con la 3.5.0.
+  const versionTag = (l) => {
+    if (!l.version_instalada) return '<span class="text-gray-300">—</span>';
+    const dias = l.version_vista_en
+      ? Math.floor((Date.now() - new Date(l.version_vista_en).getTime()) / 86400000)
+      : null;
+    const viejo = dias !== null && dias > 14;
+    const color = viejo ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700';
+    const cuando = dias === null ? '' : dias === 0 ? 'hoy' : `hace ${dias} d`;
+    return `<span class="px-2 py-1 rounded-full text-xs font-semibold ${color}">${esc(l.version_instalada)}</span>`
+         + (cuando ? `<span class="block text-[10px] text-gray-400 mt-0.5">${cuando}</span>` : '');
+  };
   tbody.innerHTML = licencias.map(l => `
     <tr class="hover:bg-gray-50 transition">
       <td class="px-4 py-3">
@@ -502,6 +517,7 @@ async function loadLicencias() {
       </td>
       <td class="px-4 py-3 font-mono text-xs text-gray-500">${l.suscripcionId ? esc(l.suscripcionId) : '—'}</td>
       <td class="px-4 py-3 text-xs text-gray-500">${l.activadaEn ? l.activadaEn.slice(0,10) : '—'}</td>
+      <td class="px-4 py-3 text-xs">${versionTag(l)}</td>
       <td class="px-4 py-3 text-xs text-gray-500">${l.ultimaValidacion ? l.ultimaValidacion.slice(0,10) : '—'}</td>
       <td class="px-4 py-3 flex gap-2">
         <button onclick="editarLicencia(${JSON.stringify(l).replace(/"/g,'&quot;')})"

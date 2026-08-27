@@ -203,6 +203,16 @@ function initDB() {
   // Pieza 5.0 — Plan determina las features del cliente (basico|clinica|red).
   // Default 'clinica' por ser la mayoría de licencias actuales en BD.
   try { db.exec("ALTER TABLE licencias ADD COLUMN plan TEXT NOT NULL DEFAULT 'clinica'"); } catch (_) {}
+
+  // 27-08-2026 — Vista de flota. Hasta ahora el relay no sabía qué versión corría cada
+  // instalación: el PC mandaba licenseKey, hardwareId e instanceId, y nada más. Eso hizo que
+  // la clínica estuviera un día entera sin instalar la 3.5.0 y la única forma de enterarse
+  // fuera que Francisco lo notara.
+  //
+  // Con estas dos columnas, un cliente atascado en una versión vieja se ve ANTES de que
+  // llame. Es el antídoto contra el fallo silencioso, aplicado al conjunto.
+  try { db.exec('ALTER TABLE licencias ADD COLUMN version_instalada TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE licencias ADD COLUMN version_vista_en TEXT'); } catch (_) {}
   // v1.9.1+ — Código de activación de un solo uso para citas web
   try { db.exec('ALTER TABLE clinicas ADD COLUMN activation_code TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE clinicas ADD COLUMN activation_code_used INTEGER DEFAULT 0'); } catch (_) {}
