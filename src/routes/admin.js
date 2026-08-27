@@ -111,6 +111,42 @@ router.post('/api/licencias/verificar', (req, res) => {
 
 // ── API (requiere ADMIN_TOKEN) ────────────────────────────────────────────────
 
+/**
+ * Diagnóstico del proceso que está corriendo AHORA MISMO.
+ *
+ * Nace el 27-08-2026 de no poder responder a una pregunta simple: los correos salían con
+ * `[TEST]` en el asunto —lo que en el código solo ocurre si `DEV_EMAIL_OVERRIDE` tiene
+ * valor— pero esa variable no aparecía por ninguna parte en Railway. Sin poder mirar dentro
+ * del proceso, la discusión se quedaba en suposiciones.
+ *
+ * Devuelve **si** hay valor, nunca **cuál**. Va tras el ADMIN_TOKEN porque describe la
+ * configuración del servidor, aunque no contenga secretos.
+ */
+router.get('/api/diagnostico', authAdmin, (req, res) => {
+  const hay = (v) => {
+    const x = process.env[v];
+    return typeof x === 'string' && x.trim().length > 0;
+  };
+  res.json({
+    ok: true,
+    ahora: new Date().toISOString(),
+    correo: {
+      // El que motivó todo esto.
+      overrideActivo:  hay('DEV_EMAIL_OVERRIDE'),
+      overrideLongitud: hay('DEV_EMAIL_OVERRIDE') ? process.env.DEV_EMAIL_OVERRIDE.trim().length : 0,
+      resendConfigurado: hay('RESEND_API_KEY'),
+      remitente: process.env.SMTP_FROM || '(por defecto: PodoSystem <info@podosystem.es>)',
+    },
+    entorno: {
+      nodeEnv: process.env.NODE_ENV || '(sin definir)',
+      // Para saber qué código corre de verdad, sin fiarse de lo que uno cree haber desplegado.
+      commit: process.env.RAILWAY_GIT_COMMIT_SHA?.slice(0, 7) || '(desconocido)',
+      rama:   process.env.RAILWAY_GIT_BRANCH || '(desconocida)',
+      desplegadoEn: process.env.RAILWAY_DEPLOYMENT_ID ? 'railway' : '(local u otro)',
+    },
+  });
+});
+
 router.get('/api/stats', authAdmin, (req, res) => {
   const licencias = req.db.prepare('SELECT * FROM licencias').all();
   const clinicas  = req.db.prepare('SELECT * FROM clinicas').all();
