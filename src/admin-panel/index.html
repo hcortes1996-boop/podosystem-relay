@@ -50,6 +50,7 @@
         <button onclick="showTab('dashboard')" data-tab="dashboard" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Dashboard</button>
         <button onclick="showTab('licencias')" data-tab="licencias" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Licencias</button>
         <button onclick="showTab('clinicas')" data-tab="clinicas" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Clínicas relay</button>
+        <button onclick="showTab('trials')" data-tab="trials" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Pruebas</button>
         <button onclick="showTab('nuevo')" data-tab="nuevo" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">+ Nuevo cliente</button>
         <button onclick="showTab('solicitudes')" data-tab="solicitudes" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition flex items-center gap-1.5">Solicitudes <span id="badge-solicitudes" class="hidden bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 font-bold leading-none"></span></button>
       </nav>
@@ -229,6 +230,34 @@
     </div>
 
     <!-- SOLICITUDES DE ALTA -->
+    <!-- Quien se descarga la prueba. Antes el boton de demo.html iba directo al EXE y no
+         se sabia quien probaba el producto ni cuantos acababan comprando. -->
+    <div id="tab-trials" class="hidden fade">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6" id="trials-stats"></div>
+      <div class="bg-white rounded-xl border border-gray-100 overflow-hidden">
+        <table class="w-full">
+          <thead class="bg-gray-50">
+            <tr>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Interesado</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Teléfono</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Clínica</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Descargó</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Versión</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Estado</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="trials-tbody" class="divide-y divide-gray-50">
+            <tr><td colspan="7" class="px-4 py-6 text-center text-gray-400 text-sm">Cargando…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="text-xs text-gray-400 mt-3">
+        La conversión se calcula cruzando el correo de la prueba con el de la licencia.
+        Quien pruebe con un correo y compre con otro no se cuenta: es un <strong>suelo</strong>, no un dato exacto.
+      </p>
+    </div>
+
     <div id="tab-solicitudes" class="hidden fade">
       <div class="flex items-center justify-between mb-5">
         <h2 class="text-xl font-bold text-gray-800">Solicitudes de alta</h2>
@@ -432,6 +461,7 @@ function showTab(tab) {
   if (tab === 'licencias')   loadLicencias();
   if (tab === 'clinicas')    loadClinicas();
   if (tab === 'solicitudes') loadSolicitudesAlta('pendiente');
+  if (tab === 'trials')      loadTrials();
   // Al salir de "nuevo cliente", limpiar el formulario y ocultar el resultado
   if (tab !== 'nuevo') {
     document.getElementById('nuevo-cliente-form').reset();
@@ -817,6 +847,77 @@ function copiarEmailDraft() {
 
 // ── Solicitudes de alta ──────────────────────────────────────────────────────
 let _filtroSolicitudes = 'pendiente';
+// ── Pruebas (trials) ────────────────────────────────────────────────────────
+// Antes el boton de demo.html iba directo al EXE: no se sabia quien probaba el producto,
+// ni cuantos, ni que porcentaje compraba. Ahora hay que dejar datos y aceptar privacidad.
+async function loadTrials() {
+  const tbody = document.getElementById("trials-tbody");
+  const cajas = document.getElementById("trials-stats");
+  try {
+    const d = await api('GET', '/admin/api/trials');
+    const s = d.stats || {};
+
+    const caja = (t, v, extra) =>
+      `<div class="bg-white rounded-xl border border-gray-100 p-4">
+         <p class="text-xs font-semibold text-gray-400 uppercase">${t}</p>
+         <p class="text-2xl font-bold text-[#1E3A5F] mt-1">${v}</p>
+         ${extra ? `<p class="text-xs text-gray-400 mt-0.5">${extra}</p>` : ""}
+       </div>`;
+
+    cajas.innerHTML = [
+      caja("Han probado", s.total ?? 0),
+      caja("Últimos 30 días", s.ultimos30 ?? 0),
+      caja("Han comprado", s.convertidos ?? 0),
+      // null y no 0 cuando no hay nadie: un 0 % haria pensar que nadie convierte.
+      caja("Conversión", s.porcentaje === null || s.porcentaje === undefined ? "—" : s.porcentaje + " %",
+           "cruzando correos: es un suelo"),
+    ].join("");
+
+    if (!d.trials.length) {
+      tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-6 text-center text-gray-400 text-sm">Todavía no se ha descargado nadie la prueba</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = d.trials.map(t => `
+      <tr class="hover:bg-gray-50 transition">
+        <td class="px-4 py-3">
+          <p class="font-medium text-gray-800 text-sm">${esc(t.nombre)}</p>
+          <p class="text-xs text-gray-400">${esc(t.email)}</p>
+        </td>
+        <td class="px-4 py-3 text-sm text-gray-600">${esc(t.telefono || "—")}</td>
+        <td class="px-4 py-3 text-sm text-gray-600">
+          ${esc(t.clinica || "—")}
+          ${t.provincia ? `<span class="block text-xs text-gray-400">${esc(t.provincia)}</span>` : ""}
+        </td>
+        <td class="px-4 py-3 text-xs text-gray-500">
+          ${t.creadaEn ? t.creadaEn.slice(0,10) : "—"}
+          <span class="block text-[10px] text-gray-400">hace ${t.diasDesdeDescarga} d${t.descargas > 1 ? ` · ${t.descargas} veces` : ""}</span>
+        </td>
+        <td class="px-4 py-3 text-xs font-mono text-gray-500">${esc(t.version_descargada || "—")}</td>
+        <td class="px-4 py-3">
+          ${t.convertido
+            ? `<span class="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Cliente</span>`
+            : `<span class="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">Probando</span>`}
+        </td>
+        <td class="px-4 py-3">
+          <button onclick="borrarTrial('${t.id}', '${esc(t.nombre)}')"
+            class="text-xs px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition font-medium">Borrar</button>
+        </td>
+      </tr>`).join("");
+  } catch (e) {
+    tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-6 text-center text-red-500 text-sm">Error: ${esc(e.message)}</td></tr>`;
+  }
+}
+
+// Derecho de supresión: si alguien pide que se borren sus datos, hay que poder hacerlo.
+async function borrarTrial(id, nombre) {
+  if (!confirm(`¿Borrar los datos de ${nombre}?
+
+Es lo que hay que hacer si pide que se supriman.`)) return;
+  await api('DELETE', `/admin/api/trials/${id}`);
+  loadTrials();
+}
+
 async function loadSolicitudesAlta(estado) {
   if (estado !== undefined) _filtroSolicitudes = estado;
   ['pendiente','aprobada','rechazada','todas'].forEach(f => {

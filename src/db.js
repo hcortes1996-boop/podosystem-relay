@@ -132,6 +132,34 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_citas_remote_ops_pendientes
       ON citas_remote_ops(clinicaId, syncedAt, createdAt);
 
+    -- Quién se descarga la prueba (27-08-2026).
+    --
+    -- Hasta ahora el botón de demo.html apuntaba directo al EXE: no se sabía quién lo
+    -- descargaba, ni cuánta gente estaba probando, ni qué porcentaje acababa comprando.
+    --
+    -- acepta_privacidad y acepta_privacidad_en no son adorno: son la prueba de que hubo
+    -- consentimiento, y sin ellas guardar un teléfono y un correo de un profesional
+    -- identificable no se sostiene. Se guardan la IP y el agente por el mismo motivo.
+    CREATE TABLE IF NOT EXISTS trials (
+      id                    TEXT PRIMARY KEY,
+      nombre                TEXT NOT NULL,
+      email                 TEXT NOT NULL,
+      telefono              TEXT NOT NULL,
+      clinica               TEXT,
+      provincia             TEXT,
+      acepta_privacidad     INTEGER NOT NULL DEFAULT 0,
+      acepta_privacidad_en  TEXT,
+      version_descargada    TEXT,
+      ip                    TEXT,
+      user_agent            TEXT,
+      creadaEn              TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      descargas             INTEGER NOT NULL DEFAULT 1,
+      ultima_descarga       TEXT,
+      notas_admin           TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_trials_creada ON trials(creadaEn DESC);
+    CREATE INDEX IF NOT EXISTS idx_trials_email  ON trials(email);
+
     -- Solicitudes de alta desde alta-relay.html
     CREATE TABLE IF NOT EXISTS solicitudes_alta (
       id                TEXT PRIMARY KEY,

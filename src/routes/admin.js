@@ -202,6 +202,49 @@ router.post('/api/test-email-bienvenida', authAdmin, async (req, res) => {
   }
 });
 
+/**
+ * Quién está probando el producto, y cuántos acaban comprando.
+ *
+ * La conversión se calcula cruzando `trials.email` con `licencias.clienteEmail`. Funciona
+ * sin tocar el flujo de compra, pero **si alguien prueba con un correo y compra con otro, no
+ * se cuenta**: la cifra es un SUELO, no un dato exacto. Se devuelve `convertidos` junto al
+ * total para que quien la lea sepa sobre qué se calcula.
+ */
+router.get('/api/trials', authAdmin, (req, res) => {
+  const trials = req.db.prepare('SELECT * FROM trials ORDER BY creadaEn DESC').all();
+
+  const correosConLicencia = new Set(
+    req.db.prepare("SELECT LOWER(TRIM(clienteEmail)) AS e FROM licencias WHERE clienteEmail IS NOT NULL")
+      .all().map(r => r.e)
+  );
+
+  const conEstado = trials.map(t => {
+    const convertido = correosConLicencia.has(String(t.email || '').toLowerCase().trim());
+    const dias = Math.floor((Date.now() - new Date(t.creadaEn).getTime()) / 86400000);
+    return { ...t, convertido, diasDesdeDescarga: dias };
+  });
+
+  const convertidos = conEstado.filter(t => t.convertido).length;
+
+  res.json({
+    ok: true,
+    trials: conEstado,
+    stats: {
+      total: trials.length,
+      convertidos,
+      // Sin trials no hay porcentaje: devolver 0 haria pensar que nadie convierte.
+      porcentaje: trials.length ? Math.round((convertidos / trials.length) * 100) : null,
+      ultimos30: conEstado.filter(t => t.diasDesdeDescarga <= 30).length,
+    },
+  });
+});
+
+router.delete('/api/trials/:id', authAdmin, (req, res) => {
+  // Derecho de supresión: si alguien pide que se borren sus datos, hay que poder hacerlo.
+  const r = req.db.prepare('DELETE FROM trials WHERE id = ?').run(req.params.id);
+  res.json({ ok: true, borrados: r.changes });
+});
+
 router.get('/api/clinicas', authAdmin, (req, res) => {
   const clinicas = req.db.prepare('SELECT id, nombre, webUrl, netlifyId, createdAt, activa, activation_code, activation_code_used FROM clinicas ORDER BY createdAt DESC').all();
   res.json({ ok: true, clinicas });

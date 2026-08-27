@@ -70,6 +70,8 @@ app.use('/api', require('./routes/alta'));
 // Entrega del código de recuperación de contraseña. El PC lo genera y lo verifica;
 // aquí solo se entrega el correo, para que la clínica no tenga que configurar un SMTP.
 app.use('/api', require('./routes/recuperacion'));
+// Registro de quien se descarga la prueba, y resolucion de la ultima version publica.
+app.use('/api', require('./routes/trials'));
 // Pieza 6.0 — WhatsApp Cloud (recordatorios push notification a APK)
 app.use('/api', require('./routes/recordatorios'));
 // Pieza 8.3 — Stripe Checkout Sessions (POST /api/checkout/create-session)
