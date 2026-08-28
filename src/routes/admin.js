@@ -21,6 +21,7 @@ const crypto  = require('crypto');
 const path    = require('path');
 const fs      = require('fs');
 const { genId, genApiKey, genActivationCode } = require('../db');
+const { firmar } = require('../firma');
 const { deployClientSite, redeployClientSite } = require('../netlify-deploy');
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'cambiar-este-token-en-railway';
@@ -106,7 +107,30 @@ router.post('/api/licencias/verificar', (req, res) => {
   const updated = req.db.prepare('SELECT * FROM licencias WHERE id=?').get(lic.id);
   // Pieza 5.0 — devolver plan para que PodoSystem cliente determine features
   // sin depender de plan.json bundled. Default 'clinica' por ALTER TABLE.
-  res.json({ ok: true, estado: updated.estado, plan: updated.plan || 'clinica' });
+  // V12 — la afirmacion va FIRMADA. Sin esto el PC es juez de su propia licencia: basta
+  // escribir un license.enc a mano, porque dentro del intervalo de 7 dias ni pregunta.
+  //
+  // Se firma tambien el hardwareId: una licencia firmada de un equipo no vale en otro,
+  // asi que copiar el fichero a otro PC sigue sin servir. Y va emitidoEn, para que una
+  // respuesta vieja capturada no valga indefinidamente.
+  const plan = updated.plan || 'clinica';
+  const sello = firmar({
+    tipo:       'licencia',
+    licenseKey: updated.licenseKey,
+    hardwareId: updated.hardwareId || hardwareId || null,
+    estado:     updated.estado,
+    plan,
+  });
+
+  res.json({
+    ok: true,
+    estado: updated.estado,
+    plan,
+    // Puede venir a null mientras FIRMA_PRIV_KEY no este puesta en Railway. El cliente
+    // de esta version lo tolera; el de la siguiente, no.
+    firmado: sello ? sello.firmado : null,
+    firma:   sello ? sello.firma   : null,
+  });
 });
 
 // ── API (requiere ADMIN_TOKEN) ────────────────────────────────────────────────
@@ -140,6 +164,12 @@ router.get('/api/diagnostico', authAdmin, (req, res) => {
       desviaElCorreo:    hay('DEV_EMAIL_OVERRIDE') && ['si','sí','yes','1','true']
                            .includes(String(process.env.DEV_EMAIL_OVERRIDE_CONFIRMAR||'').trim().toLowerCase()),
       resendConfigurado: hay('RESEND_API_KEY'),
+    },
+    // V12/T3: sin clave, el relay responde sin firmar y las versiones que la exijan no
+    // podran validar. Es lo primero que hay que mirar si un cliente dice que su licencia
+    // ha dejado de valer despues de actualizar.
+    firma: {
+      puedeFirmar: require('../firma').puedeFirmar(),
       remitente: process.env.SMTP_FROM || '(por defecto: PodoSystem <info@podosystem.es>)',
     },
     // Solo los NOMBRES, nunca los valores. Sirve para encontrar una variable que la interfaz

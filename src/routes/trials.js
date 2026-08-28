@@ -32,6 +32,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const { genId } = require('../db');
 const { ultimaDescarga } = require('../lib/descarga');
+const { firmar } = require('../firma');
 
 const router = express.Router();
 
@@ -171,10 +172,16 @@ router.post('/trial/estado', limiteEstado, (req, res) => {
                        WHERE hardwareId = ?`)
         .run(ahora, version, hardwareId);
 
+      // T3 — firmado, para que no baste con inventarse un servidor. La regla del minimo
+      // ya impedia que una respuesta falsa REGALE dias; la firma cierra tambien que una
+      // respuesta falsa pueda hacerse pasar por nosotros para cualquier otra cosa.
+      const sello = firmar({ tipo: 'trial', hardwareId, inicio: fila.inicio, fin: fila.fin, dias: fila.dias });
       return res.json({
         ok: true, nuevo: false,
         inicio: fila.inicio, fin: fila.fin, dias: fila.dias,
         diasRestantes: diasRestantes(fila.fin),
+        firmado: sello ? sello.firmado : null,
+        firma:   sello ? sello.firma   : null,
       });
     }
 
@@ -198,9 +205,12 @@ router.post('/trial/estado', limiteEstado, (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(hardwareId, ahora, fin, TRIAL_DIAS, trialId, version, ahora, ip || null);
 
+    const selloNuevo = firmar({ tipo: 'trial', hardwareId, inicio: ahora, fin, dias: TRIAL_DIAS });
     return res.json({
       ok: true, nuevo: true,
       inicio: ahora, fin, dias: TRIAL_DIAS, diasRestantes: TRIAL_DIAS,
+      firmado: selloNuevo ? selloNuevo.firmado : null,
+      firma:   selloNuevo ? selloNuevo.firma   : null,
     });
   } catch (e) {
     // Un fallo aquí no puede dejar a nadie sin poder trabajar: el PC se queda con su
