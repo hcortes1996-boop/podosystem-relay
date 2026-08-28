@@ -145,6 +145,22 @@ const HUELLA2 = '00112233445566778899aabbccddeeff';
   ok(r.body.nuevo === false, 'y el equipo sigue con su trial de siempre');
 
   console.log('\n── Si el servidor falla, no inventa fechas ──');
+  console.log('== T5: lo que ve el panel ==');
+  {
+    const a = await admin('/api/trials');
+    ok(Array.isArray(a.body.instalaciones), 'el panel recibe la lista de equipos');
+    const uno = a.body.instalaciones.find(i => i.huella === HUELLA2.slice(0, 8));
+    ok(!!uno, 'aparece el equipo que hemos ido usando');
+    ok(uno.huella.length === 8, 'solo se ensena un trozo de la huella, no entera', uno.huella);
+    ok(typeof uno.diasRestantes === 'number', 'con los dias que le quedan');
+    ok(uno.version === '3.6.0', 'y la version que corre', uno.version);
+    ok(a.body.stats.instalaciones >= 2, 'se cuentan los equipos', String(a.body.stats.instalaciones));
+    ok(typeof a.body.stats.instalacionesActivas === 'number', 'y cuantos siguen en marcha');
+    ok(a.body.stats.masEquiposQueDescargas === true,
+      'avisa de que hay mas equipos que descargas: el EXE circula de mano en mano');
+    ok(uno.persona === null, 'un equipo sin datos personales enlazados no inventa un nombre');
+  }
+
   // Se rompe la tabla por debajo: es la forma honesta de provocar el fallo sin tocar el
   // codigo del servidor, y comprueba tambien que el error se atrapa donde debe.
   db.exec('ALTER TABLE trial_instalaciones RENAME TO trial_instalaciones_off');

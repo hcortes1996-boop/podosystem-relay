@@ -272,15 +272,59 @@ router.get('/api/trials', authAdmin, (req, res) => {
 
   const convertidos = conEstado.filter(t => t.convertido).length;
 
+  // ── T5: los equipos que de verdad están probando el programa ──────────────
+  //
+  // Descargar y probar no es lo mismo. Uno se descarga el EXE y no lo abre nunca; otro lo
+  // pasa a tres compañeros. Hasta ahora solo se veía la descarga, que es la mitad de la
+  // historia y la menos interesante: lo que dice si el producto gusta es cuántos equipos
+  // lo tienen abierto y cuántos días llevan.
+  //
+  // Y hay una señal comercial que solo se ve aquí: **si hay más instalaciones que
+  // descargas registradas, el EXE está circulando de mano en mano**. Eso no es
+  // necesariamente malo —puede ser el mejor canal que tienes— pero conviene saberlo.
+  const ahora = Date.now();
+  const instalaciones = req.db.prepare(`
+    SELECT i.hardwareId, i.inicio, i.fin, i.dias, i.version, i.vistas,
+           i.primeraVista, i.ultimaVista, i.trialId,
+           t.nombre AS personaNombre, t.email AS personaEmail
+      FROM trial_instalaciones i
+      LEFT JOIN trials t ON t.id = i.trialId
+     ORDER BY i.fin DESC
+  `).all().map(i => {
+    const restantes = Math.max(0, Math.ceil((new Date(i.fin).getTime() - ahora) / 86400000));
+    return {
+      // La huella completa no aporta nada en pantalla y es un identificador de máquina:
+      // se enseña un trozo, suficiente para distinguir filas y hablar de una en concreto.
+      huella:       String(i.hardwareId).slice(0, 8),
+      inicio:       i.inicio,
+      fin:          i.fin,
+      dias:         i.dias,
+      diasRestantes: restantes,
+      activo:       restantes > 0,
+      version:      i.version,
+      vistas:       i.vistas,
+      ultimaVista:  i.ultimaVista,
+      // Orientativo: se enlazó por IP y fecha cercanas, no es una identificación.
+      persona:      i.personaNombre ? { nombre: i.personaNombre, email: i.personaEmail } : null,
+    };
+  });
+
+  const activos = instalaciones.filter(i => i.activo).length;
+
   res.json({
     ok: true,
     trials: conEstado,
+    instalaciones,
     stats: {
       total: trials.length,
       convertidos,
       // Sin trials no hay porcentaje: devolver 0 haria pensar que nadie convierte.
       porcentaje: trials.length ? Math.round((convertidos / trials.length) * 100) : null,
       ultimos30: conEstado.filter(t => t.diasDesdeDescarga <= 30).length,
+      instalaciones:        instalaciones.length,
+      instalacionesActivas: activos,
+      // Más equipos que descargas = el instalador circula de mano en mano.
+      masEquiposQueDescargas: instalaciones.length > trials.length,
     },
   });
 });
