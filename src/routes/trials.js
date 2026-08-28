@@ -107,6 +107,109 @@ router.post('/trial/registrar', limite, async (req, res) => {
   return res.json({ ok: true, descargaUrl: url, version });
 });
 
+// ── T2: la cuenta del trial la lleva el servidor ────────────────────────────
+//
+// Hasta ahora vivía en `%APPDATA%\podosystem\trial.dat`. Borrarlo daba otros 60 días: no
+// hacía falta descifrar nada ni entender el formato. Con 60 días —el doble que antes— cada
+// reinicio rinde el doble.
+//
+// El riesgo no es el pirata, que iba a encontrar la forma igualmente. Es la clínica que
+// empieza de buena fe, descubre el truco y sigue trabajando gratis **con todos sus
+// pacientes dentro**: los datos no se van al reiniciar el trial, solo la cuenta.
+//
+// ── Cómo no se puede abusar de esto ─────────────────────────────────────────
+//
+// El PC se queda con la fecha de fin MÁS TEMPRANA entre la suya y la de aquí. Por tanto:
+//
+//   · borrar `trial.dat` no sirve — este servidor recuerda la fecha original;
+//   · falsificar este servidor tampoco — el fichero local sigue teniendo la suya.
+//
+// Hay que vencer las dos a la vez. Y por eso este endpoint **nunca puede alargar** un
+// trial: en el peor caso es ruido que el PC ignora.
+//
+// ── Y por qué no exige autenticación ────────────────────────────────────────
+//
+// Quien pregunta todavía no es cliente: no tiene licencia ni clave que enseñar. Lo único
+// que se acepta es una huella con formato válido, con límite por IP. Lo que se puede hacer
+// abusando de él es crear filas basura — molesto, no peligroso: no revela nada de nadie y
+// no concede tiempo a ningún equipo real.
+const TRIAL_DIAS = 60;
+const ES_HUELLA  = /^[0-9a-f]{32}$/;
+
+// Más holgado que el registro de descarga: un PC pregunta al arrancar, y un usuario puede
+// abrir y cerrar el programa varias veces seguidas sin ser sospechoso de nada.
+const limiteEstado = enTest ? sinLimite : rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { ok: false, error: 'Demasiadas consultas.' },
+});
+
+const diasRestantes = (fin) =>
+  Math.max(0, Math.ceil((new Date(fin).getTime() - Date.now()) / 86400000));
+
+router.post('/trial/estado', limiteEstado, (req, res) => {
+  const hardwareId = limpiar(req.body?.hardwareId, 64).toLowerCase();
+  if (!ES_HUELLA.test(hardwareId)) {
+    return res.status(400).json({ ok: false, error: 'huella no válida' });
+  }
+  const version = limpiar(req.body?.version, 24) || null;
+  const ahora   = new Date().toISOString();
+  const ip      = (req.headers['x-forwarded-for'] || req.ip || '').toString().split(',')[0].trim();
+
+  try {
+    const fila = req.db
+      .prepare('SELECT hardwareId, inicio, fin, dias FROM trial_instalaciones WHERE hardwareId = ?')
+      .get(hardwareId);
+
+    if (fila) {
+      // Ya conocida. La fecha de fin NO se toca nunca: es justo lo que hace que borrar el
+      // fichero del PC deje de servir para nada.
+      req.db.prepare(`UPDATE trial_instalaciones
+                         SET vistas = vistas + 1, ultimaVista = ?, version = COALESCE(?, version)
+                       WHERE hardwareId = ?`)
+        .run(ahora, version, hardwareId);
+
+      return res.json({
+        ok: true, nuevo: false,
+        inicio: fila.inicio, fin: fila.fin, dias: fila.dias,
+        diasRestantes: diasRestantes(fila.fin),
+      });
+    }
+
+    // Primera vez que se ve esta huella. Se fija la fecha de fin y ya no se mueve.
+    const fin = new Date(Date.now() + TRIAL_DIAS * 86400000).toISOString();
+
+    // Enlace orientativo con quien se descargó el programa: si desde esta misma IP hubo un
+    // registro de descarga en el último mes, es casi seguro la misma persona. Es una
+    // ayuda para el panel, NO una identificación: no se usa para decidir nada.
+    let trialId = null;
+    try {
+      const hace30 = new Date(Date.now() - 30 * 86400000).toISOString();
+      const cand = req.db.prepare(
+        'SELECT id FROM trials WHERE ip = ? AND creadaEn >= ? ORDER BY creadaEn DESC LIMIT 1',
+      ).get(ip, hace30);
+      if (cand) trialId = cand.id;
+    } catch (_) { /* el enlace es opcional */ }
+
+    req.db.prepare(`INSERT INTO trial_instalaciones
+        (hardwareId, inicio, fin, dias, trialId, version, ultimaVista, ip)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(hardwareId, ahora, fin, TRIAL_DIAS, trialId, version, ahora, ip || null);
+
+    return res.json({
+      ok: true, nuevo: true,
+      inicio: ahora, fin, dias: TRIAL_DIAS, diasRestantes: TRIAL_DIAS,
+    });
+  } catch (e) {
+    // Un fallo aquí no puede dejar a nadie sin poder trabajar: el PC se queda con su
+    // cuenta local, que nunca es más generosa que la nuestra.
+    console.error('[trials] /trial/estado:', e.message);
+    return res.status(503).json({ ok: false, error: 'no disponible' });
+  }
+});
+
 /** Solo la URL, sin registrar nada. Para la vía de emergencia y para enlaces internos. */
 router.get('/trial/descarga', async (_req, res) => {
   const { url, version, error } = await ultimaDescarga();

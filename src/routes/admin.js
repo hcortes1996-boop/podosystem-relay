@@ -287,7 +287,16 @@ router.get('/api/trials', authAdmin, (req, res) => {
 
 router.delete('/api/trials/:id', authAdmin, (req, res) => {
   // Derecho de supresión: si alguien pide que se borren sus datos, hay que poder hacerlo.
-  const r = req.db.prepare('DELETE FROM trials WHERE id = ?').run(req.params.id);
+  //
+  // Se sueltan también los enlaces desde `trial_instalaciones`. La fila de la instalación
+  // NO se borra —es la que impide reiniciar el trial borrando un fichero, y sin ella el
+  // equipo estrenaría otros 60 días— pero se queda sin nada que apunte a una persona:
+  // una huella de máquina suelta no identifica a nadie. Borrar los datos personales no
+  // puede convertirse, de rebote, en una forma de recuperar el periodo de prueba.
+  const r = req.db.transaction((id) => {
+    req.db.prepare('UPDATE trial_instalaciones SET trialId = NULL, ip = NULL WHERE trialId = ?').run(id);
+    return req.db.prepare('DELETE FROM trials WHERE id = ?').run(id);
+  })(req.params.id);
   res.json({ ok: true, borrados: r.changes });
 });
 

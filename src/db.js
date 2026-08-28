@@ -160,6 +160,31 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_trials_creada ON trials(creadaEn DESC);
     CREATE INDEX IF NOT EXISTS idx_trials_email  ON trials(email);
 
+    -- ── T2: el trial deja de contarlo el PC ─────────────────────────────────
+    --
+    -- Hasta ahora la cuenta vivía en %APPDATA%\podosystem\trial.dat. Borrarlo daba otros
+    -- 60 días, sin descifrar nada ni entender ningún formato. El riesgo real no era el
+    -- pirata —ese encuentra la forma igual— sino la clínica que empieza de buena fe,
+    -- descubre el truco y sigue trabajando gratis con todos sus pacientes dentro.
+    --
+    -- Aquí la fecha de fin se fija UNA vez, la primera que se ve esa huella, y no se
+    -- vuelve a mover. La columna "dias" se guarda con la fila a propósito: si mañana el
+    -- trial pasa a 90 días, los que ya empezaron conservan el suyo y no se alargan solos.
+    CREATE TABLE IF NOT EXISTS trial_instalaciones (
+      hardwareId    TEXT PRIMARY KEY,
+      inicio        TEXT NOT NULL,
+      fin           TEXT NOT NULL,
+      dias          INTEGER NOT NULL,
+      trialId       TEXT,              -- → trials.id, si se pudo enlazar con la descarga
+      version       TEXT,              -- última versión que se vio en ese equipo
+      vistas        INTEGER NOT NULL DEFAULT 1,
+      primeraVista  TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+      ultimaVista   TEXT,
+      ip            TEXT,
+      notas_admin   TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_trial_inst_fin ON trial_instalaciones(fin DESC);
+
     -- Solicitudes de alta desde alta-relay.html
     CREATE TABLE IF NOT EXISTS solicitudes_alta (
       id                TEXT PRIMARY KEY,
