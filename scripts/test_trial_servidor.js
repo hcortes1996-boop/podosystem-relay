@@ -145,6 +145,54 @@ const HUELLA2 = '00112233445566778899aabbccddeeff';
   ok(r.body.nuevo === false, 'y el equipo sigue con su trial de siempre');
 
   console.log('\n── Si el servidor falla, no inventa fechas ──');
+  console.log('== Ajustar y borrar el trial de un equipo ==');
+  {
+    // Existe para poder PROBAR que esto funciona: con un trial recien empezado, borrar el
+    // fichero local y reabrir dice «60 dias» las dos veces y no se distingue el sistema
+    // funcionando del roto. Con 5 dias puestos desde aqui, la prueba se ve en la pantalla.
+    let r = await admin(`/api/trial-instalaciones/${HUELLA2}`, {
+      method: 'PUT', body: JSON.stringify({ dias: 5 }),
+    });
+    ok(r.status === 200 && r.body.ok === true, 'se puede ajustar los dias de un equipo', String(r.status));
+    let e = await estado({ hardwareId: HUELLA2 });
+    ok(e.body.diasRestantes === 5, 'y el PC ve los 5 dias', String(e.body.diasRestantes));
+
+    // Lo que de verdad demuestra la pieza: borrar el fichero local no lo devuelve a 60.
+    e = await estado({ hardwareId: HUELLA2 });
+    ok(e.body.diasRestantes === 5, 'volver a preguntar sigue dando 5, no 60', String(e.body.diasRestantes));
+
+    r = await admin(`/api/trial-instalaciones/${HUELLA2}`, { method: 'PUT', body: JSON.stringify({ dias: 0 }) });
+    e = await estado({ hardwareId: HUELLA2 });
+    ok(e.body.diasRestantes === 0, 'poner 0 dias lo da por terminado', String(e.body.diasRestantes));
+
+    ok((await admin(`/api/trial-instalaciones/${HUELLA2}`, { method: 'PUT', body: JSON.stringify({ dias: -3 }) })).status === 400,
+      'no se aceptan dias negativos');
+    ok((await admin(`/api/trial-instalaciones/${HUELLA2}`, { method: 'PUT', body: JSON.stringify({ dias: 99999 }) })).status === 400,
+      'ni un numero absurdo');
+    ok((await admin('/api/trial-instalaciones/no-vale', { method: 'PUT', body: JSON.stringify({ dias: 5 }) })).status === 400,
+      'ni una huella con mala pinta');
+    ok((await admin(`/api/trial-instalaciones/${'f'.repeat(32)}`, { method: 'PUT', body: JSON.stringify({ dias: 5 }) })).status === 404,
+      'un equipo que no existe da 404, no lo inventa');
+
+    // Sin token no se toca nada: regalar tiempo tiene que ser cosa del dueno del producto.
+    const sinToken = await fetch(`${BASE}/admin/api/trial-instalaciones/${HUELLA2}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dias: 500 }),
+    });
+    ok(sinToken.status === 401, 'sin ADMIN_TOKEN no se puede regalar tiempo', String(sinToken.status));
+
+    // Borrar la fila deja al equipo como desconocido: estrenara sus 60 dias.
+    r = await admin(`/api/trial-instalaciones/${HUELLA2}`, { method: 'DELETE' });
+    ok(r.status === 200 && r.body.borrados === 1, 'se puede borrar el registro de un equipo');
+    e = await estado({ hardwareId: HUELLA2 });
+    ok(e.body.nuevo === true && e.body.diasRestantes === 60,
+      'y entonces si estrena 60 dias — es la salida para quien cambia de equipo');
+
+    // Al borrarlo y recrearlo, el equipo ha perdido la version que traia. Se vuelve a
+    // anunciar para que las comprobaciones del panel, que van despues, sigan mirando lo
+    // mismo. Es una consecuencia de la PRUEBA, no del producto.
+    await estado({ hardwareId: HUELLA2, version: '3.6.0' });
+  }
+
   console.log('== T5: lo que ve el panel ==');
   {
     const a = await admin('/api/trials');

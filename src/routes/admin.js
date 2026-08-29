@@ -323,8 +323,11 @@ router.get('/api/trials', authAdmin, (req, res) => {
   `).all().map(i => {
     const restantes = Math.max(0, Math.ceil((new Date(i.fin).getTime() - ahora) / 86400000));
     return {
-      // La huella completa no aporta nada en pantalla y es un identificador de máquina:
-      // se enseña un trozo, suficiente para distinguir filas y hablar de una en concreto.
+      // La huella completa no aporta nada EN PANTALLA y es un identificador de máquina: se
+      // enseña un trozo, suficiente para distinguir filas y hablar de una en concreto. La
+      // completa va aparte porque los botones de ajustar y borrar la necesitan, y este
+      // endpoint ya exige el token de administración.
+      id:           String(i.hardwareId),
       huella:       String(i.hardwareId).slice(0, 8),
       inicio:       i.inicio,
       fin:          i.fin,
@@ -357,6 +360,54 @@ router.get('/api/trials', authAdmin, (req, res) => {
       masEquiposQueDescargas: instalaciones.length > trials.length,
     },
   });
+});
+
+// ── Ajustar el trial de un equipo ───────────────────────────────────────────
+//
+// Nace para poder PROBAR que el trial del servidor funciona: con un trial recién empezado,
+// borrar `trial.dat` y volver a abrir dice «60 días» las dos veces, así que no se distingue
+// el sistema funcionando del sistema roto. Poniéndole 5 días desde aquí, la prueba se ve en
+// la propia pantalla del programa y no admite interpretación.
+//
+// Pero no es solo para eso, y por eso se queda:
+//
+//   · Un podólogo que está a punto de decidirse y pide una semana más.
+//   · Alguien que cambia de placa o reinstala Windows y pierde su periodo de prueba: su
+//     huella cambia y el relay lo ve como un equipo distinto, con lo que en realidad NO
+//     pierde nada — pero si lo que quiere es empezar limpio, se borra su fila.
+//   · Y limpiar las filas de las pruebas, para que el panel diga la verdad.
+//
+// ⚠️ Con el token de administración se puede regalar tiempo. Es lo esperado: es el panel del
+// dueño del producto. Lo que NO puede hacer nadie es hacerlo desde el PC del cliente, que
+// era el problema.
+const ES_HUELLA_ADMIN = /^[0-9a-f]{32}$/;
+
+router.put('/api/trial-instalaciones/:huella', authAdmin, (req, res) => {
+  const huella = String(req.params.huella || '').toLowerCase();
+  if (!ES_HUELLA_ADMIN.test(huella)) return res.status(400).json({ ok: false, error: 'huella no válida' });
+
+  const dias = Number(req.body?.dias);
+  if (!Number.isFinite(dias) || dias < 0 || dias > 3650) {
+    return res.status(400).json({ ok: false, error: 'dias debe ser un número entre 0 y 3650' });
+  }
+
+  const fila = req.db.prepare('SELECT hardwareId, fin FROM trial_instalaciones WHERE hardwareId = ?').get(huella);
+  if (!fila) return res.status(404).json({ ok: false, error: 'ese equipo no tiene trial registrado' });
+
+  const fin = new Date(Date.now() + dias * 86400000).toISOString();
+  const nota = `fin ajustado a ${dias} días el ${new Date().toISOString().slice(0, 10)} (antes: ${fila.fin})`;
+  req.db.prepare('UPDATE trial_instalaciones SET fin = ?, notas_admin = ? WHERE hardwareId = ?')
+    .run(fin, nota, huella);
+
+  res.json({ ok: true, huella: huella.slice(0, 8), fin, dias });
+});
+
+router.delete('/api/trial-instalaciones/:huella', authAdmin, (req, res) => {
+  const huella = String(req.params.huella || '').toLowerCase();
+  if (!ES_HUELLA_ADMIN.test(huella)) return res.status(400).json({ ok: false, error: 'huella no válida' });
+  const r = req.db.prepare('DELETE FROM trial_instalaciones WHERE hardwareId = ?').run(huella);
+  // Borrada la fila, ese equipo vuelve a ser desconocido y estrenará 60 días al preguntar.
+  res.json({ ok: true, borrados: r.changes });
 });
 
 router.delete('/api/trials/:id', authAdmin, (req, res) => {

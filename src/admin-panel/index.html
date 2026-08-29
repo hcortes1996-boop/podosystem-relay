@@ -270,10 +270,11 @@
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Le queda</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Versión</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Visto</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Acciones</th>
             </tr>
           </thead>
           <tbody id="instalaciones-tbody" class="divide-y divide-gray-50">
-            <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400 text-sm">Cargando…</td></tr>
+            <tr><td colspan="7" class="px-4 py-6 text-center text-gray-400 text-sm">Cargando…</td></tr>
           </tbody>
         </table>
       </div>
@@ -945,7 +946,7 @@ function pintarInstalaciones(lista, stats) {
   if (!tb) return;
 
   if (!lista.length) {
-    tb.innerHTML = `<tr><td colspan="6" class="px-4 py-6 text-center text-gray-400 text-sm">
+    tb.innerHTML = `<tr><td colspan="7" class="px-4 py-6 text-center text-gray-400 text-sm">
       Todavía no ha arrancado ningún equipo con una versión que lleve esto</td></tr>`;
     return;
   }
@@ -953,7 +954,7 @@ function pintarInstalaciones(lista, stats) {
   // Señal comercial, no técnica: más equipos que descargas significa que el instalador
   // circula de mano en mano. Puede ser tu mejor canal, pero conviene verlo.
   const aviso = stats && stats.masEquiposQueDescargas
-    ? `<tr><td colspan="6" class="px-4 py-2 bg-amber-50 text-amber-800 text-xs">
+    ? `<tr><td colspan="7" class="px-4 py-2 bg-amber-50 text-amber-800 text-xs">
          Hay ${stats.instalaciones} equipos y solo ${stats.total} descargas registradas:
          el instalador está circulando de mano en mano.</td></tr>`
     : "";
@@ -982,8 +983,37 @@ function pintarInstalaciones(lista, stats) {
           ${i.ultimaVista ? i.ultimaVista.slice(0,10) : "—"}
           <span class="block text-[10px] text-gray-400">${i.vistas} arranques</span>
         </td>
+        <td class="px-4 py-3 whitespace-nowrap">
+          <button onclick="ajustarTrial('${i.id}', '${esc(i.huella)}', ${i.diasRestantes})"
+            class="text-xs px-2.5 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium">Días</button>
+          <button onclick="borrarInstalacion('${i.id}', '${esc(i.huella)}')"
+            class="ml-1 text-xs px-2.5 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 font-medium">Borrar</button>
+        </td>
       </tr>`;
   }).join("");
+}
+
+// Cambiar los días que le quedan a un equipo. Sirve para dar margen a quien está a punto de
+// decidirse, y para probar que el trial del servidor funciona: con un trial recién empezado,
+// borrar el fichero local y reabrir dice «60 días» las dos veces y no se distingue nada.
+async function ajustarTrial(id, huella, actuales) {
+  const v = prompt(`¿Cuántos días debe tener el equipo ${huella}…?\n\n` +
+                   `Ahora le quedan ${actuales}. Pon 0 para darlo por terminado.`, String(actuales));
+  if (v === null) return;
+  const dias = Number(v);
+  if (!Number.isFinite(dias) || dias < 0) { alert('Pon un número de días.'); return; }
+  await api('PUT', `/admin/api/trial-instalaciones/${id}`, { dias });
+  loadTrials();
+}
+
+// Borrar la fila deja al equipo como desconocido: al preguntar estrenará sus 60 días. Es lo
+// que hace falta tras una prueba, o si alguien pierde su periodo por cambiar de equipo.
+async function borrarInstalacion(id, huella) {
+  if (!confirm(`¿Borrar el registro del equipo ${huella}…?\n\n` +
+               `Dejará de tener trial registrado y, la próxima vez que abra el programa, ` +
+               `empezará 60 días nuevos.`)) return;
+  await api('DELETE', `/admin/api/trial-instalaciones/${id}`);
+  loadTrials();
 }
 
 // Derecho de supresión: si alguien pide que se borren sus datos, hay que poder hacerlo.
