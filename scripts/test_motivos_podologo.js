@@ -203,6 +203,55 @@ const libres = (d) => (d.slots || []).filter(s => s.libre).map(s => s.hora);
       'y del que manda basura solo se guarda lo utilizable', a.motivosPublicos);
   }
 
+  // ── Lo que la web necesita para preguntar el motivo ANTES que el profesional ──────────
+  //
+  // El orden nuevo es motivo → podólogo → calendario, así que la página tiene que saber
+  // qué se puede pedir y quién lo atiende ANTES de pintar nada. Si eso obligara a una
+  // segunda petición, el paciente vería la lista de profesionales parpadear.
+  console.log('\n── /api/podologos trae el catalogo y quien atiende cada cosa ──');
+  {
+    // El bloque anterior sincronizó una config SIN motivos, que es lo que se estaba probando
+    // allí. Aquí se vuelve al escenario del principio: la clínica ofrece las dos cosas.
+    db.prepare('UPDATE agenda_config SET config = ? WHERE clinicaId = ?').run(JSON.stringify({
+      duracionSlot: 20, diasMin: 0, diasMax: 30,
+      horario: { [dow]: [{ inicio: '09:00', fin: '13:00' }] },
+      motivos: [
+        { id: 'quiropodia',  nombre: 'Quiropodia',  minutos: 20, activo: true },
+        { id: 'biomecanica', nombre: 'Biomecánica', minutos: 40, activo: true },
+      ],
+    }), cid);
+    db.prepare(`UPDATE podologos_publicos SET motivosPublicos = ? WHERE clinicaId = ? AND id = 'ana'`)
+      .run(JSON.stringify([{ id: 'quiropodia', nombre: 'Quiropodia', minutos: 20 }]), cid);
+    db.prepare(`UPDATE podologos_publicos SET motivosPublicos = NULL WHERE clinicaId = ? AND id = 'german'`).run(cid);
+
+    const r = await get(`/api/podologos/${cid}`);
+    const ana    = (r.podologos || []).find(p => p.id === 'ana');
+    const german = (r.podologos || []).find(p => p.id === 'german');
+
+    ok(Array.isArray(r.motivos) && r.motivos.some(m => m.id === 'biomecanica'),
+      'el catalogo viene en la MISMA llamada que ya se hacia al abrir',
+      JSON.stringify((r.motivos || []).map(m => m.id)));
+    ok(!r.motivos.some(m => 'minutos' in m),
+      'y sin los minutos: cuanto dura cada cosa es asunto de la clinica, no del paciente');
+    ok(german.atiende === null,
+      'el que hereda va con null, no con la lista copiada — si manana la clinica anade un '
+      + 'servicio, el debe ofrecerlo solo', JSON.stringify(german.atiende));
+    ok(Array.isArray(ana.atiende) && ana.atiende.join(',') === 'quiropodia',
+      'y el que tiene lista propia, con la suya', JSON.stringify(ana.atiende));
+  }
+  {
+    // Una lista ilegible no puede dejar a nadie sin trabajo: hereda, como en todo lo demas.
+    db.prepare(`UPDATE podologos_publicos SET motivosPublicos = '{roto' WHERE clinicaId = ? AND id = 'ana'`).run(cid);
+    const r = await get(`/api/podologos/${cid}`);
+    const ana = (r.podologos || []).find(p => p.id === 'ana');
+    ok(ana.atiende === null, 'un catalogo ilegible se lee como «hereda», no como «no hace nada»',
+      JSON.stringify(ana.atiende));
+    db.prepare(`UPDATE podologos_publicos SET motivosPublicos = '[]' WHERE clinicaId = ? AND id = 'ana'`).run(cid);
+    const r2 = await get(`/api/podologos/${cid}`);
+    ok(r2.podologos.find(p => p.id === 'ana').atiende === null,
+      'y una lista vacia tambien: nadie configura un podologo para que no ofrezca nada');
+  }
+
   console.log(`\n${fallados === 0 ? `✅ ${pasados} COMPROBACIONES EN VERDE` : `❌ ${fallados} FALLIDAS de ${pasados + fallados}`}\n`);
   try { fs.unlinkSync(TMP); } catch {}
   await new Promise(r => setTimeout(r, 300));

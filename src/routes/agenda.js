@@ -362,7 +362,7 @@ router.post('/citas-remote/sincronizadas', auth, (req, res) => {
   res.json({ ok: true, count: opIds.length });
 });
 
-const { duracionDeMotivo, motivosPublicos, nombreDeMotivo } = require('../lib/motivos');
+const { duracionDeMotivo, motivosPublicos, nombreDeMotivo, normalizarMotivos } = require('../lib/motivos');
 
 /* ── Helpers de cálculo ───────────────────────────────────────── */
 
@@ -775,7 +775,38 @@ router.get('/podologos/:clinicaId', (req, res) => {
       ORDER BY orden ASC, nombre ASC
     `).all(req.params.clinicaId);
 
-    res.json({ ok: true, podologos });
+    // ── Qué se puede pedir, y con quién ───────────────────────────────────────
+    //
+    // La web pregunta el motivo ANTES que el profesional, así que necesita las dos cosas
+    // antes de pintar nada. Van aquí, en la llamada que ya hacía al abrir, en vez de en una
+    // segunda petición: son datos de la misma pregunta.
+    //
+    // `atiende: null` significa «lo que ofrezca la clínica» — el caso normal. Se envía null
+    // en vez de la lista copiada para que el navegador distinga heredar de tener una lista
+    // que casualmente coincide: si mañana la clínica añade un servicio, el que hereda lo
+    // ofrece solo, y el que tiene lista propia no.
+    const cfgRow = req.db.prepare('SELECT config FROM agenda_config WHERE clinicaId = ?')
+      .get(req.params.clinicaId);
+    const cfg = cfgRow ? (() => { try { return JSON.parse(cfgRow.config); } catch (_) { return {}; } })() : {};
+
+    const motivos = motivosDeLaClinica(req.db, req.params.clinicaId, podologos, cfg);
+    const conMotivos = podologos.map(p => {
+      const row = req.db.prepare(`
+        SELECT motivosPublicos FROM podologos_publicos WHERE clinicaId = ? AND id = ?
+      `).get(req.params.clinicaId, p.id);
+      let atiende = null;
+      if (row && row.motivosPublicos) {
+        try {
+          const propios = normalizarMotivos(JSON.parse(row.motivosPublicos));
+          // Solo cuenta si de verdad hay lista: un catálogo ilegible o vacío hereda,
+          // igual que en la aritmética de disponibilidad.
+          if (propios && propios.length) atiende = motivosPublicos({ motivos: propios }).map(m => m.id);
+        } catch (_) { /* hereda */ }
+      }
+      return { ...p, atiende };
+    });
+
+    res.json({ ok: true, podologos: conMotivos, motivos });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }

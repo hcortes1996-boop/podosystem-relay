@@ -1066,9 +1066,35 @@
           </div>
         </div>
 
-        <!-- PIEZA 3.3 — PASO 0: Elige podólogo (solo si hay >=2 publicados) -->
+        <!-- PIEZA 3.3 — PASO 0: Elige podólogo (solo si hay >=2 publicados)
+             Ampliado: primero A QUÉ VIENE, después con quién.
+
+             El orden importa. Preguntar el profesional antes que el servicio obliga al
+             paciente a elegir a alguien que a lo mejor no hace lo que necesita, y a
+             descubrirlo al final. Con el motivo delante, solo se le enseñan los que pueden
+             atenderle — y si solo hay uno, ni se le pregunta. -->
         <div id="step-0" class="booking-step">
-          <h2>¿Con qué podólogo prefieres?</h2>
+          <div id="motivo-paso0-wrap" style="display:none;margin-bottom:18px">
+            <h2 style="margin-bottom:10px">¿A qué viene?</h2>
+            <select id="motivo-paso0" style="width:100%;padding:12px;border:1px solid #d9e2ec;border-radius:10px;font-size:.95rem;background:#fff">
+              <option value="" disabled selected>Seleccione el motivo…</option>
+            </select>
+            <p style="font-size:.78rem;color:#94a3b8;margin:6px 0 0">
+              Las horas libres cambian según el motivo: unos servicios necesitan más tiempo que otros.
+            </p>
+          </div>
+
+          <!-- Nadie ofrece ese servicio. No es un error de la web: es información, y lo
+               único útil que se le puede dar es el teléfono. -->
+          <div id="motivo-sin-nadie" style="display:none;margin-bottom:14px;padding:14px;border:1px solid #ffd9b0;background:#fff8ef;border-radius:10px">
+            <p style="margin:0;font-size:.9rem;color:#8a5a1c">
+              Ese servicio no se puede pedir por internet ahora mismo.
+              Llámenos al <a href="tel:{{CLINICA_TELEFONO_RAW}}" style="color:#1a5fa8;font-weight:600">{{CLINICA_TELEFONO}}</a>
+              y se lo resolvemos.
+            </p>
+          </div>
+
+          <h2 id="titulo-podologo">¿Con qué podólogo prefieres?</h2>
           <div class="podologo-grid" id="podologo-grid">
             <p style="color:#94a3b8;font-size:.88rem;text-align:center;padding:20px 0">Cargando…</p>
           </div>
@@ -1078,6 +1104,7 @@
         <div id="step-1" class="booking-step active">
           <button class="btn-change-pod" id="back-to-pod" style="display:none">← Cambiar podólogo</button>
           <h2>Selecciona día y hora</h2>
+          <p id="resumen-eleccion" class="card-sub" style="display:none;margin:-4px 0 12px"></p>
 
           <!-- ── A qué viene, ANTES del calendario ─────────────────────────────
                No es un campo más del formulario: determina qué huecos se ven. Una
@@ -1462,6 +1489,20 @@
     let podologoSeleccionado = null;  // null = "Cualquier disponible"
     let multiPodologo = false;        // true si podologos.length >= 2
 
+    // ── Motivo de consulta ────────────────────────────────────────────────────
+    // Aquí arriba con el resto del estado, y no junto a las funciones que lo usan: son
+    // `let`, así que leerlos antes de esta línea sería un error en tiempo de ejecución.
+    // Hoy no pasa porque `init()` va al final del script, pero eso es un accidente del
+    // orden del fichero y no algo en lo que apoyarse.
+    let motivoSeleccionado = '';
+    let motivosPintados = false;
+    // El catálogo llega en la misma llamada que los podólogos, al abrir la página: con el
+    // motivo por delante hace falta antes de pintar nada.
+    let catalogoMotivos = [];
+    // Con varios podólogos el motivo se pregunta en el paso 0, así que el selector de
+    // encima del calendario sobra. Esta bandera es lo que lo apaga.
+    let motivoPreguntadoAntes = false;
+
     // Sumar N días a una fecha ISO
     function sumarDias(fechaStr, n) {
       const d = new Date(fechaStr + 'T12:00:00Z');
@@ -1555,19 +1596,86 @@
         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
-    function renderPodologoGrid() {
+    // ¿Quién puede atender esto? Sin motivo elegido, todos — que es como funcionaba antes
+    // de que existieran los motivos. `atiende === null` es «hereda el catálogo de la
+    // clínica», así que ese los ofrece todos.
+    function puedenAtender(motivoId) {
+      if (!motivoId) return podologos;
+      return podologos.filter(p => !Array.isArray(p.atiende) || p.atiende.includes(motivoId));
+    }
+
+    function renderPodologoGrid(lista) {
       const grid = document.getElementById('podologo-grid');
+      const disponibles = lista || podologos;
       grid.innerHTML = '';
-      // Tarjeta "Cualquier disponible" primera
-      grid.appendChild(crearPodologoCard({
-        id: null,
-        nombre: 'Cualquier disponible',
-        apellido: null,
-        descripcionPublica: 'Sin preferencia',
-        color: '#1a237e'
-      }));
+      // "Cualquier disponible" solo tiene sentido si de verdad hay entre quien elegir.
+      if (disponibles.length >= 2) {
+        grid.appendChild(crearPodologoCard({
+          id: null,
+          nombre: 'Cualquier disponible',
+          apellido: null,
+          descripcionPublica: 'Sin preferencia',
+          color: '#1a237e'
+        }));
+      }
       // Tarjetas individuales
-      for (const p of podologos) grid.appendChild(crearPodologoCard(p));
+      for (const p of disponibles) grid.appendChild(crearPodologoCard(p));
+    }
+
+    // ── El motivo, delante de todo ────────────────────────────────────────────
+    //
+    // Tres desenlaces, y ninguno deja al paciente en un callejón:
+    //   · nadie lo atiende  → el teléfono, que es lo único que le sirve
+    //   · lo atiende uno    → directo a su agenda, con su nombre delante
+    //   · lo atienden varios→ elige, entre los que pueden
+    function pintarMotivosPaso0() {
+      const wrap = document.getElementById('motivo-paso0-wrap');
+      const sel  = document.getElementById('motivo-paso0');
+      const grid = document.getElementById('podologo-grid');
+      const titulo = document.getElementById('titulo-podologo');
+      if (!wrap || !sel || !catalogoMotivos.length) return false;
+
+      wrap.style.display = '';
+      // Hasta que no diga a qué viene, no se le enseña a nadie: la lista dependería de la
+      // respuesta y cambiaría delante de sus ojos.
+      grid.style.display = 'none';
+      titulo.style.display = 'none';
+      // El desplegable del formulario final deja de preguntarse: ya se ha contestado.
+      const grupoFinal = document.getElementById('motivo')?.closest('.form-group');
+      if (grupoFinal) grupoFinal.style.display = 'none';
+      motivoPreguntadoAntes = true;
+
+      sel.innerHTML = '<option value="" disabled selected>Seleccione el motivo…</option>'
+        + catalogoMotivos.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.nombre)}</option>`).join('');
+
+      sel.addEventListener('change', () => {
+        const opt = sel.options[sel.selectedIndex];
+        fijarMotivo(sel.value, opt.text);
+        // Cambiar de motivo invalida la hora que hubiera elegido antes: para otro servicio
+        // puede que ese hueco ya no valga.
+        selectedFecha = null;
+        selectedHora  = null;
+
+        const lista = puedenAtender(sel.value);
+        document.getElementById('motivo-sin-nadie').style.display = lista.length ? 'none' : '';
+
+        if (lista.length === 0) {
+          grid.style.display = 'none';
+          titulo.style.display = 'none';
+          return;
+        }
+        if (lista.length === 1) {
+          // Un solo profesional lo hace: preguntarle «¿con quién?» sería una pregunta con
+          // una sola respuesta.
+          seleccionarPodologo(lista[0]);
+          return;
+        }
+        titulo.style.display = '';
+        titulo.textContent = '¿Con qué podólogo prefieres?';
+        grid.style.display = '';
+        renderPodologoGrid(lista);
+      });
+      return true;
     }
 
     function seleccionarPodologo(p) {
@@ -1577,6 +1685,20 @@
         selectedHora = null;
       }
       podologoSeleccionado = p.id; // null para "Cualquiera"
+
+      // Con quién y para qué, escrito encima del calendario. Importa sobre todo cuando el
+      // paso de elegir profesional se ha saltado por ser uno solo: si no, el paciente ve
+      // aparecer una agenda sin saber de quién es.
+      const resumen = document.getElementById('resumen-eleccion');
+      if (resumen) {
+        const nombreMotivo = (catalogoMotivos.find(m => m.id === motivoSeleccionado) || {}).nombre;
+        const quien = p.id ? [p.nombre, p.apellido].filter(Boolean).join(' ') : 'cualquier podólogo disponible';
+        resumen.innerHTML = nombreMotivo
+          ? `${escapeHtml(nombreMotivo)} · con <strong>${escapeHtml(quien)}</strong>`
+          : `Con <strong>${escapeHtml(quien)}</strong>`;
+        resumen.style.display = (nombreMotivo || p.id) ? '' : 'none';
+      }
+
       showStep(1);
       cargarSemana(new Date().toISOString().slice(0, 10));
     }
@@ -1586,13 +1708,25 @@
     // Si no lo ha hecho, `data.motivos` viene vacío y aquí no pasa nada: el selector
     // sigue oculto y la página se comporta igual que siempre. Una clínica que no ha
     // pedido este cambio no lo nota.
-    let motivoSeleccionado = '';
-    let motivosPintados = false;
+    // El motivo se elige en dos sitios distintos —paso 0 con varios podólogos, encima del
+    // calendario con uno solo— pero lo que hay que hacer con él es lo mismo, y el envío del
+    // formulario final espera el TEXTO, que es lo que la clínica lee en su agenda.
+    function fijarMotivo(id, texto) {
+      motivoSeleccionado = id;
+      const final = document.getElementById('motivo');
+      if (final && texto) {
+        if (![...final.options].some(o => o.value === texto)) final.add(new Option(texto, texto));
+        final.value = texto;
+      }
+    }
 
     function pintarMotivos(motivos) {
       const wrap = document.getElementById('motivo-previo-wrap');
       const sel  = document.getElementById('motivo-previo');
       if (!wrap || !sel) return;
+      // Ya se preguntó en el paso 0. Preguntarlo otra vez encima del calendario sería
+      // pedir dos veces lo mismo, y con dos respuestas posibles.
+      if (motivoPreguntadoAntes) { wrap.style.display = 'none'; return; }
       if (!Array.isArray(motivos) || !motivos.length) { wrap.style.display = 'none'; return; }
       wrap.style.display = '';
 
@@ -1611,16 +1745,7 @@
       if (grupoFinal) grupoFinal.style.display = 'none';
 
       sel.addEventListener('change', () => {
-        motivoSeleccionado = sel.value;
-        const final = document.getElementById('motivo');
-        if (final) {
-          // Se copia el TEXTO, que es lo que la clínica lee hoy en su agenda.
-          const opt = sel.options[sel.selectedIndex];
-          if (![...final.options].some(o => o.value === opt.text)) {
-            final.add(new Option(opt.text, opt.text));
-          }
-          final.value = opt.text;
-        }
+        fijarMotivo(sel.value, sel.options[sel.selectedIndex].text);
         // Volver a pedir la semana: las horas libres son otras.
         cargarSemana(desdeActual || new Date().toISOString().slice(0, 10));
       });
@@ -1981,14 +2106,24 @@
         const res = await fetch(`${RELAY_URL}/api/podologos/${CLINICA_ID}`);
         const data = await res.json();
         podologos = (data && data.ok) ? (data.podologos || []) : [];
-      } catch (_) { podologos = []; }
+        // Relays antiguos no lo mandan; entonces `catalogoMotivos` queda vacío y la página
+        // se comporta como siempre: el motivo se pregunta encima del calendario.
+        catalogoMotivos = (data && Array.isArray(data.motivos)) ? data.motivos : [];
+      } catch (_) { podologos = []; catalogoMotivos = []; }
 
       multiPodologo = podologos.length >= 2;
 
       if (multiPodologo) {
         // Multi-podólogo: indicador 3 pasos + step-0 + botón "Cambiar podólogo"
         inyectarTercerDot();
-        renderPodologoGrid();
+        const conMotivo = pintarMotivosPaso0();
+        if (conMotivo) {
+          // El paso 0 ya no es solo el podólogo, y el botón de volver tiene que decirlo.
+          document.getElementById('dot-0').querySelector('.dot-label').textContent = 'Tu consulta';
+          document.getElementById('back-to-pod').textContent = '← Cambiar motivo o podólogo';
+        } else {
+          renderPodologoGrid();
+        }
         document.getElementById('back-to-pod').style.display = 'inline-flex';
         showStep(0);
       } else {
