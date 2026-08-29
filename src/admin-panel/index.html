@@ -527,12 +527,14 @@ async function loadStats() {
 
 // ── Licencias ───────────────────────────────────────────────────────────────
 async function loadLicencias() {
-  const { licencias } = await api('GET', '/admin/api/licencias');
+  const { licencias, salud } = await api('GET', '/admin/api/licencias');
   const tbody = document.getElementById('licencias-tbody');
   if (!licencias?.length) {
     tbody.innerHTML = '<tr><td colspan="9" class="px-4 py-6 text-center text-gray-400 text-sm">Sin licencias registradas</td></tr>';
+    pintarAvisoLicencias(null, []);
     return;
   }
+  pintarAvisoLicencias(salud, licencias);
   const planTag = (p) => {
     const map = {
       basico:  'bg-gray-100 text-gray-700',
@@ -575,7 +577,10 @@ async function loadLicencias() {
       <td class="px-4 py-3 font-mono text-xs text-gray-500">${l.suscripcionId ? esc(l.suscripcionId) : '—'}</td>
       <td class="px-4 py-3 text-xs text-gray-500">${l.activadaEn ? l.activadaEn.slice(0,10) : '—'}</td>
       <td class="px-4 py-3 text-xs">${versionTag(l)}</td>
-      <td class="px-4 py-3 text-xs text-gray-500">${l.ultimaValidacion ? l.ultimaValidacion.slice(0,10) : '—'}</td>
+      <td class="px-4 py-3 text-xs text-gray-500">
+        ${l.ultimaValidacion ? l.ultimaValidacion.slice(0,10) : '—'}
+        ${saludTag(l.salud)}
+      </td>
       <td class="px-4 py-3 flex gap-2">
         <button onclick="editarLicencia(${JSON.stringify(l).replace(/"/g,'&quot;')})"
           class="text-xs px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition font-medium">Editar</button>
@@ -584,6 +589,56 @@ async function loadLicencias() {
       </td>
     </tr>
   `).join('');
+}
+
+// ── El aviso ────────────────────────────────────────────────────────────────
+//
+// Antes había que leer la tabla entera y hacer la cuenta de días a ojo. Así aparecieron —de
+// casualidad, buscando otra cosa— un cliente con 47 días sin validar y otro que nunca había
+// activado su licencia. Con dos clientes se ve; con veinte, no.
+//
+// Lo que se enseña es lo que le pasa AL CLIENTE («su programa está en solo lectura»), no lo
+// que dice la base de datos («ultimaValidacion vacío»). Es lo único que sirve para decidir a
+// quién llamar.
+function saludTag(s) {
+  if (!s || s.nivel === 'ok') return '';
+  const cls = s.nivel === 'alerta'
+    ? 'bg-red-100 text-red-800'
+    : 'bg-amber-100 text-amber-800';
+  const icono = s.nivel === 'alerta' ? '⚠️' : '•';
+  return `<span class="block mt-1 px-2 py-1 rounded-lg text-[11px] font-medium ${cls}">${icono} ${esc(s.mensaje)}</span>`;
+}
+
+function pintarAvisoLicencias(salud, licencias) {
+  let caja = document.getElementById('licencias-aviso');
+  if (!caja) {
+    const tabla = document.getElementById('licencias-tbody');
+    if (!tabla) return;
+    caja = document.createElement('div');
+    caja.id = 'licencias-aviso';
+    caja.className = 'mb-4';
+    const cont = tabla.closest('div');
+    if (cont && cont.parentNode) cont.parentNode.insertBefore(caja, cont);
+  }
+  if (!salud || (!salud.alerta && !salud.aviso)) {
+    caja.innerHTML = salud
+      ? `<div class="px-4 py-2.5 bg-[#f0faf7] border border-[#2ECC9A]/40 rounded-xl text-sm text-[#1E3A5F]">
+           ✅ Las ${salud.total} licencias están al día.
+         </div>`
+      : '';
+    return;
+  }
+  const enApuros = licencias.filter(l => l.salud && l.salud.nivel === 'alerta');
+  const aVigilar = licencias.filter(l => l.salud && l.salud.nivel === 'aviso');
+  const linea = (l) => `<li>${esc(l.clienteNombre)} — ${esc(l.salud.mensaje)}</li>`;
+  caja.innerHTML = `
+    <div class="px-4 py-3 rounded-xl border ${salud.alerta ? 'bg-red-50 border-red-200' : 'bg-amber-50 border-amber-200'}">
+      <p class="text-sm font-semibold ${salud.alerta ? 'text-red-800' : 'text-amber-800'}">
+        ${salud.alerta ? `⚠️ ${salud.alerta} licencia(s) necesitan tu atención` : `${salud.aviso} licencia(s) que vigilar`}
+      </p>
+      ${enApuros.length ? `<ul class="mt-1.5 ml-4 list-disc text-xs text-red-800 space-y-0.5">${enApuros.map(linea).join('')}</ul>` : ''}
+      ${aVigilar.length ? `<ul class="mt-1.5 ml-4 list-disc text-xs text-amber-800 space-y-0.5">${aVigilar.map(linea).join('')}</ul>` : ''}
+    </div>`;
 }
 
 function editarLicencia(l) {

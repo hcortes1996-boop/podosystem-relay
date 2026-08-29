@@ -210,9 +210,32 @@ router.get('/api/stats', authAdmin, (req, res) => {
   });
 });
 
-router.get('/api/licencias', authAdmin, (req, res) => {
+router.get('/api/licencias', authAdmin, async (req, res) => {
   const licencias = req.db.prepare('SELECT * FROM licencias ORDER BY createdAt DESC').all();
-  res.json({ ok: true, licencias });
+
+  // ── Que el panel avise, en vez de tener que ir a buscarlo ─────────────────
+  //
+  // El 29-08-2026 aparecieron dos clientes en situaciones que nadie había avisado: uno
+  // llevaba 47 días sin validar y otro nunca había activado su licencia. Con dos clientes eso
+  // se ve de un vistazo; con veinte, no.
+  const { saludLicencia, resumen } = require('../lib/salud_licencias');
+
+  // La última versión publicada sale de la misma consulta que alimenta la web de descarga,
+  // que ya viene con caché. Si GitHub no contesta, se sigue sin ese dato: saber que un
+  // cliente lleva 20 días sin validar importa mucho más que saber qué versión usa.
+  let ultimaVersion = null;
+  try {
+    const { version } = await require('../lib/descarga').ultimaDescarga();
+    if (version) ultimaVersion = String(version).replace(/^v/, '');
+  } catch (_) { /* opcional */ }
+
+  const opciones = { ahora: Date.now(), ultimaVersion };
+  res.json({
+    ok: true,
+    licencias: licencias.map(l => ({ ...l, salud: saludLicencia(l, opciones) })),
+    salud: resumen(licencias, opciones),
+    ultimaVersion,
+  });
 });
 
 router.post('/api/licencias', authAdmin, (req, res) => {
