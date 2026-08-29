@@ -92,10 +92,22 @@ function normalizarMotivos(lista) {
   return salida.length ? salida : null;
 }
 
-/** El catálogo de una clínica: el suyo si lo tiene, y si no los de fábrica. */
+/**
+ * El catálogo de una clínica. **Vacío si no ha configurado ninguno.**
+ *
+ * ⚠️ Los de fábrica NO se aplican solos, y esto es deliberado. Al principio caían aquí como
+ * valor por defecto, hasta que se miró la repercusión: una clínica que nunca pidió nada, al
+ * regenerar su web, se habría encontrado otras opciones en el formulario y sus estudios
+ * durando 40 minutos en vez de su rejilla. **Cambiarle la web a alguien que no lo ha pedido
+ * no vale**, por muy razonable que sea el valor.
+ *
+ * `MOTIVOS_FABRICA` es lo que el editor del PC ofrece como punto de partida. Nada más.
+ *
+ * Sin motivos configurados, todo se comporta exactamente como antes de esta pieza: una sola
+ * duración para todo, la de la rejilla.
+ */
 function catalogoDe(cfg) {
-  const propios = normalizarMotivos(cfg && cfg.motivos);
-  return propios || MOTIVOS_FABRICA;
+  return normalizarMotivos(cfg && cfg.motivos) || [];
 }
 
 /** Lo que se le enseña al paciente: los activos, sin los minutos. */

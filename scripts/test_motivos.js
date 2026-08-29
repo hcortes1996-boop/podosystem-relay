@@ -55,11 +55,19 @@ ok(M.duracionDeMotivo(CFG, '__proto__') === 30, 'ni un nombre de propiedad de Ja
 ok(M.duracionDeMotivo(CFG, 'ESTUDIO') === 40, 'pero las mayúsculas no rompen un motivo legítimo');
 ok(M.duracionDeMotivo(CFG, '  estudio  ') === 40, 'ni los espacios de sobra');
 
-console.log('\n── Sin catalogo configurado ──');
-ok(M.duracionDeMotivo({ duracionSlot: 30 }, 'estudio') === 40,
-  'sin catálogo propio se usan los de fábrica');
-ok(M.duracionDeMotivo({}, 'consulta') === 20, 'y con la config vacía, también');
+console.log('\n── Sin catalogo configurado: TODO como antes de esta pieza ──');
+// Los de fabrica NO se aplican solos. Si cayeran aqui, una clinica que nunca pidio nada
+// veria cambiar su web al regenerarla, y sus estudios pasarian a durar 40 min en vez de su
+// rejilla. Cambiarle la web a alguien que no lo ha pedido no vale, por muy razonable que
+// sea el valor.
+ok(M.duracionDeMotivo({ duracionSlot: 30 }, 'estudio') === 30,
+  'una clínica sin motivos NO hereda los de fábrica: todo dura lo de su rejilla');
+ok(M.duracionDeMotivo({ duracionSlot: 20 }, 'consulta') === 20, 'con cualquier rejilla');
 ok(M.duracionDeMotivo({}, null) === 30, 'la duración por defecto son 30 si no se dice otra cosa');
+ok(M.motivosPublicos({}).length === 0,
+  'y la web no recibe ningún motivo: se queda con su formulario de siempre');
+ok(M.MOTIVOS_FABRICA.length === 4,
+  'los de fábrica siguen existiendo, pero solo como sugerencia del editor del PC');
 
 console.log('\n── Lo que se le enseña al paciente ──');
 {
