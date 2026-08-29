@@ -1078,6 +1078,27 @@
         <div id="step-1" class="booking-step active">
           <button class="btn-change-pod" id="back-to-pod" style="display:none">← Cambiar podólogo</button>
           <h2>Selecciona día y hora</h2>
+
+          <!-- ── A qué viene, ANTES del calendario ─────────────────────────────
+               No es un campo más del formulario: determina qué huecos se ven. Una
+               quiropodia de 30 min y una cura de 15 no caben en las mismas horas,
+               así que preguntarlo después sería enseñar disponibilidad que no es.
+
+               Solo aparece si la clínica ha configurado motivos con duración. Si
+               no, se queda oculto y la página funciona exactamente como siempre:
+               el motivo se pregunta al final, como texto. -->
+          <div id="motivo-previo-wrap" style="display:none;margin-bottom:14px">
+            <label for="motivo-previo" style="display:block;font-size:.85rem;font-weight:600;color:var(--navy);margin-bottom:6px">
+              ¿A qué viene? <span style="color:#e74c3c">*</span>
+            </label>
+            <select id="motivo-previo" style="width:100%;padding:11px 12px;border:1px solid #d9e2ec;border-radius:10px;font-size:.92rem;background:#fff">
+              <option value="" disabled selected>Seleccione el motivo…</option>
+            </select>
+            <p style="font-size:.78rem;color:#94a3b8;margin:6px 0 0">
+              Las horas libres cambian según el motivo: unos servicios necesitan más tiempo que otros.
+            </p>
+          </div>
+
           <div class="week-nav">
             <button class="week-nav-btn" id="prev-week" disabled>← Anterior</button>
             <span class="week-label" id="week-label">Cargando…</span>
@@ -1560,6 +1581,51 @@
       cargarSemana(new Date().toISOString().slice(0, 10));
     }
 
+    // ── El motivo de consulta, cuando la clínica lo ha configurado ────────────
+    //
+    // Si no lo ha hecho, `data.motivos` viene vacío y aquí no pasa nada: el selector
+    // sigue oculto y la página se comporta igual que siempre. Una clínica que no ha
+    // pedido este cambio no lo nota.
+    let motivoSeleccionado = '';
+    let motivosPintados = false;
+
+    function pintarMotivos(motivos) {
+      const wrap = document.getElementById('motivo-previo-wrap');
+      const sel  = document.getElementById('motivo-previo');
+      if (!wrap || !sel) return;
+      if (!Array.isArray(motivos) || !motivos.length) { wrap.style.display = 'none'; return; }
+      wrap.style.display = '';
+
+      // Se pinta UNA vez: repintarlo en cada recarga de semana perdería la selección
+      // del paciente justo después de que la haga.
+      if (motivosPintados) return;
+      motivosPintados = true;
+
+      sel.innerHTML = '<option value="" disabled selected>Seleccione el motivo…</option>'
+        + motivos.map(m => `<option value="${m.id}">${m.nombre}</option>`).join('');
+
+      // El desplegable del formulario final deja de preguntarse: ya se ha contestado.
+      // Se mantiene en el DOM y se le pasa el valor, para no tocar el envío ni la
+      // validación que ya existen.
+      const grupoFinal = document.getElementById('motivo')?.closest('.form-group');
+      if (grupoFinal) grupoFinal.style.display = 'none';
+
+      sel.addEventListener('change', () => {
+        motivoSeleccionado = sel.value;
+        const final = document.getElementById('motivo');
+        if (final) {
+          // Se copia el TEXTO, que es lo que la clínica lee hoy en su agenda.
+          const opt = sel.options[sel.selectedIndex];
+          if (![...final.options].some(o => o.value === opt.text)) {
+            final.add(new Option(opt.text, opt.text));
+          }
+          final.value = opt.text;
+        }
+        // Volver a pedir la semana: las horas libres son otras.
+        cargarSemana(desdeActual || new Date().toISOString().slice(0, 10));
+      });
+    }
+
     // ── Cargar y renderizar semana ──────────────────────────────
     async function cargarSemana(desde) {
       document.getElementById('week-grid').innerHTML = '<p style="color:#94a3b8;font-size:.88rem;padding:20px 0;text-align:center;grid-column:1/-1;">Cargando…</p>';
@@ -1571,10 +1637,13 @@
       const timeout = setTimeout(() => controller.abort(), 9000);
 
       try {
+        // El motivo va en la petición: es lo que decide qué huecos caben. Sin motivo
+        // elegido, el relay responde con la duración de siempre — igual que antes.
+        const qMotivo = motivoSeleccionado ? `&motivo=${encodeURIComponent(motivoSeleccionado)}` : '';
         // Pieza 3.3 — URL con podologoId si hay selección concreta
         const url = podologoSeleccionado
-          ? `${RELAY_URL}/api/semana/${CLINICA_ID}/${encodeURIComponent(podologoSeleccionado)}?desde=${desde}`
-          : `${RELAY_URL}/api/semana/${CLINICA_ID}?desde=${desde}`;
+          ? `${RELAY_URL}/api/semana/${CLINICA_ID}/${encodeURIComponent(podologoSeleccionado)}?desde=${desde}${qMotivo}`
+          : `${RELAY_URL}/api/semana/${CLINICA_ID}?desde=${desde}${qMotivo}`;
         const res  = await fetch(url, { signal: controller.signal });
         const data = await res.json();
         if (!data.ok) throw new Error(data.error);
@@ -1584,6 +1653,8 @@
         ventanaInicio = data.ventanaInicio;
         ventanaFin    = data.ventanaFin;
         duracionSlot  = data.duracionSlot || 30;
+
+        pintarMotivos(data.motivos);
 
         renderWeekGrid(data);
         updateNavButtons();
@@ -1858,6 +1929,10 @@
             telefono:      document.getElementById('telefono').value.trim(),
             email:         document.getElementById('email')?.value.trim() || null,
             motivo:        document.getElementById('motivo').value,
+            // El identificador del motivo, para que el SERVIDOR resuelva la duración.
+            // Nunca se mandan minutos desde aquí: el relay los saca de su catálogo, y
+            // un identificador desconocido cae a la duración por defecto.
+            motivoId:      motivoSeleccionado || null,
             observaciones: document.getElementById('observaciones').value.trim() || null,
             podologoId:    podologoSeleccionado  // Pieza 3.3 — null si "Cualquiera"
           })

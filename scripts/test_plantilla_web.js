@@ -174,5 +174,54 @@ console.log('\n── El sitio que se genera es el que se sube ──');
      'NINGUNA página se sube con marcadores sin sustituir', conMarcadores.join(', '));
 }
 
+// ── El JavaScript de las páginas, que nadie compila ─────────────────────────
+//
+// `cita.html` lleva ~500 líneas de JavaScript dentro y **no pasa por ningún
+// compilador**: un paréntesis de más rompe la reserva entera y no se sabría hasta
+// que un paciente entra. Es el mismo agujero que en `ClinicaApp.jsx`, donde un
+// `ReferenceError` sobrevivió seis versiones publicadas.
+//
+// Esto no prueba que la lógica sea correcta; prueba que el fichero es ejecutable,
+// que es el fallo que más barato sale detectar y más caro cuesta descubrir tarde.
+{
+  const vm = require('vm');
+  for (const fichero of fs.readdirSync(PLANTILLA).filter(f => f.endsWith('.html'))) {
+    // Los comentarios HTML se quitan ANTES de buscar: la plantilla tiene uno que menciona
+    // «los <script> que registran sus listeners», y esa palabra dentro de un comentario
+    // abría una etiqueta falsa que se tragaba HTML como si fuera código. La primera versión
+    // de esta prueba dio un error de sintaxis inventado por eso.
+    const html = fs.readFileSync(path.join(PLANTILLA, fichero), 'utf8')
+      .replace(/<!--[\s\S]*?-->/g, '');
+    const bloques = [...html.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)]
+      .map(m => m[1]).filter(s => s.trim());
+    let error = null;
+    bloques.forEach((codigo, i) => {
+      if (error) return;
+      try { new vm.Script(codigo, { filename: `${fichero}#script${i + 1}` }); }
+      catch (e) { error = e.message; }
+    });
+    ok(!error, `${fichero}: su JavaScript se puede ejecutar (${bloques.length} bloques)`, error);
+  }
+}
+
+// ── El motivo de consulta llega hasta el final ──────────────────────────────
+//
+// Son cuatro puntos que tienen que estar los cuatro: si falta uno, la pieza queda
+// a medias y el fallo es silencioso — el paciente elige un motivo y se le ofrecen
+// los huecos de otro, o se reserva con la duración equivocada.
+{
+  const cita = fs.readFileSync(path.join(PLANTILLA, 'cita.html'), 'utf8');
+  ok(/id="motivo-previo"/.test(cita),
+     'se pregunta el motivo ANTES del calendario, no al final');
+  ok(/pintarMotivos\(data\.motivos\)/.test(cita),
+     'y se rellena con los que manda el relay, no con una lista fija');
+  ok(/motivo=\$\{encodeURIComponent\(motivoSeleccionado\)\}/.test(cita),
+     'la petición de la semana lleva el motivo: es lo que decide qué huecos caben');
+  ok(/motivoId:\s*motivoSeleccionado/.test(cita),
+     'y la reserva manda el identificador, para que el SERVIDOR ponga la duración');
+  ok(!/minutos:\s*\d/.test(cita.split('reservar-slot')[1] || ''),
+     'la página NO manda minutos: eso lo decide el relay y solo el relay');
+}
+
 console.log(`\n${pasados} pasados, ${fallados} fallados`);
 process.exit(fallados ? 1 : 0);
