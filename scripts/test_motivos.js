@@ -66,8 +66,37 @@ ok(M.duracionDeMotivo({ duracionSlot: 20 }, 'consulta') === 20, 'con cualquier r
 ok(M.duracionDeMotivo({}, null) === 30, 'la duración por defecto son 30 si no se dice otra cosa');
 ok(M.motivosPublicos({}).length === 0,
   'y la web no recibe ningún motivo: se queda con su formulario de siempre');
-ok(M.MOTIVOS_FABRICA.length === 4,
-  'los de fábrica siguen existiendo, pero solo como sugerencia del editor del PC');
+ok(M.MOTIVOS_FABRICA.length === 9,
+  'los de fábrica son los 9 que la web ya enseña hoy, ni uno mas ni uno menos',
+  String(M.MOTIVOS_FABRICA.length));
+ok(M.MOTIVOS_FABRICA.every(m => m.minutos === null),
+  'y todos SIN duracion propia: partir de ellos no le cambia nada a nadie');
+ok(M.MOTIVOS_FABRICA.some(m => m.id === 'quiropodia') && M.MOTIVOS_FABRICA.some(m => m.id === 'otro'),
+  'con identificadores estables derivados del nombre');
+
+console.log('\n── Los de fabrica SON los que la web ya enseña ──');
+{
+  // Si alguien añade un motivo al desplegable de la plantilla y no lo pone aquí, una clínica
+  // que empiece a configurarlos perdería esa opción sin enterarse. Y al revés: un motivo de
+  // fábrica que la web no ofrece nunca llegaría a usarse.
+  //
+  // Es la misma clase de desincronización que costó las dobles citas de agosto: dos sitios
+  // que deben coincidir y que hay que mantener iguales a mano. Aquí al menos avisa.
+  const fs = require('fs');
+  const ruta = require('path').join(__dirname, '..', 'web-template', 'cita.html');
+  if (!fs.existsSync(ruta)) {
+    ok(false, 'no se encuentra web-template/cita.html para comparar', ruta);
+  } else {
+    const html = fs.readFileSync(ruta, 'utf8');
+    const enLaWeb = [...html.matchAll(/<option value="([^"]+)">([^<]+)<\/option>/g)]
+      .map(m => m[2].trim()).filter(t => t && !/^Seleccione/.test(t));
+    const deFabrica = M.MOTIVOS_FABRICA.map(m => m.nombre);
+    const faltan = enLaWeb.filter(o => !deFabrica.includes(o));
+    const sobran = deFabrica.filter(f => !enLaWeb.includes(f));
+    ok(faltan.length === 0, 'ningún motivo de la web falta en los de fábrica', faltan.join(' | '));
+    ok(sobran.length === 0, 'ni al revés', sobran.join(' | '));
+  }
+}
 
 console.log('\n── Lo que se le enseña al paciente ──');
 {

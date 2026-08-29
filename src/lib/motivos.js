@@ -41,11 +41,22 @@
  * que ser una opción digna, no un castigo — por eso va con la duración por defecto de la
  * clínica y no con la más corta.
  */
+// ⚠️ Son **exactamente los que la web ya enseña hoy**, y con `minutos: null` —es decir, la
+// duración de la rejilla—. Así una clínica que empiece a configurarlos parte de lo que ya
+// tenía y solo escribe los tiempos, sin que le cambie la lista al paciente.
+//
+// Al principio esta lista eran cuatro motivos inventados (Consulta, Estudio, Revisión,
+// Otro). Habría cambiado el formulario de todas las webs generadas después.
 const MOTIVOS_FABRICA = [
-  { id: 'consulta',  nombre: 'Consulta / Quiropodia', minutos: 20, activo: true },
-  { id: 'estudio',   nombre: 'Estudio',               minutos: 40, activo: true },
-  { id: 'revision',  nombre: 'Revisión',              minutos: 20, activo: true },
-  { id: 'otro',      nombre: 'Otro / No lo sé',       minutos: null, activo: true },
+  { id: 'primera-consulta', nombre: 'Primera consulta / Revisión general', minutos: null, activo: true },
+  { id: 'quiropodia',       nombre: 'Quiropodia (callos, durezas)',        minutos: null, activo: true },
+  { id: 'una-encarnada',    nombre: 'Uña encarnada (onicocriptosis)',      minutos: null, activo: true },
+  { id: 'biomecanica',      nombre: 'Biomecánica y plantillas',            minutos: null, activo: true },
+  { id: 'verruga-plantar',  nombre: 'Verruga plantar',                     minutos: null, activo: true },
+  { id: 'pie-diabetico',    nombre: 'Pie diabético',                       minutos: null, activo: true },
+  { id: 'cirugia-ungueal',  nombre: 'Cirugía ungueal',                     minutos: null, activo: true },
+  { id: 'ortesis',          nombre: 'Ortesis digitales de silicona',       minutos: null, activo: true },
+  { id: 'otro',             nombre: 'Otro',                                minutos: null, activo: true },
 ];
 
 const MIN_MINUTOS = 5;
