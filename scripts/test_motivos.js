@@ -87,7 +87,11 @@ console.log('\n── Los de fabrica SON los que la web ya enseña ──');
   if (!fs.existsSync(ruta)) {
     ok(false, 'no se encuentra web-template/cita.html para comparar', ruta);
   } else {
-    const html = fs.readFileSync(ruta, 'utf8');
+    // Se quitan los bloques de <script> ANTES de buscar: dentro hay una plantilla de
+    // JavaScript que construye opciones (`<option value="${m.id}">${m.nombre}</option>`)
+    // y no es una opción de verdad. La primera versión de esta prueba la contaba y daba
+    // rojo con el código bien.
+    const html = fs.readFileSync(ruta, 'utf8').replace(/<script[\s\S]*?<\/script>/gi, '');
     const enLaWeb = [...html.matchAll(/<option value="([^"]+)">([^<]+)<\/option>/g)]
       .map(m => m[2].trim()).filter(t => t && !/^Seleccione/.test(t));
     const deFabrica = M.MOTIVOS_FABRICA.map(m => m.nombre);
