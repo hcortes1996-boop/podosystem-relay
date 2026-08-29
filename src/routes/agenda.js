@@ -353,15 +353,30 @@ function minutesToTime(m) {
   return `${String(Math.floor(m / 60)).padStart(2,'0')}:${String(m % 60).padStart(2,'0')}`;
 }
 
-// Genera todos los slots de un día según el horario
-function generarSlots(franjas, duracion) {
+/**
+ * Genera las horas que se ofrecen en un día.
+ *
+ * ── Dos números que hasta ahora eran uno ─────────────────────────────────────
+ *
+ * @param {number} paso          cada cuánto se ofrece una hora (la rejilla: 09:00, 09:30…)
+ * @param {number} duracionCita  cuánto tiene que caber antes de que acabe la franja
+ *
+ * Eran el mismo valor porque todas las citas web duraban lo mismo. Con motivos de duración
+ * propia dejan de serlo: **un estudio de 40 min ofertado en rejilla de 30 exige que quepan
+ * 40**, no 30. Sin esta separación se ofrecerían las 12:30 de una franja que acaba a las
+ * 13:00 para una cita que termina a las 13:10.
+ *
+ * Llamarla con dos argumentos hace exactamente lo de siempre — `duracionCita` toma el valor
+ * de `paso`—, así que los siete sitios que ya la usan no cambian de comportamiento.
+ */
+function generarSlots(franjas, paso, duracionCita = paso) {
   const slots = [];
   for (const f of franjas) {
     let cur = timeToMinutes(f.inicio);
     const end = timeToMinutes(f.fin);
-    while (cur + duracion <= end) {
+    while (cur + duracionCita <= end) {
       slots.push(minutesToTime(cur));
-      cur += duracion;
+      cur += paso;
     }
   }
   return slots;
