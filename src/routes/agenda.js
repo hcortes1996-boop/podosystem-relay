@@ -144,8 +144,8 @@ router.put('/sync-agenda', auth, (req, res) => {
   // Pieza 3.3 — Upsert podologos_publicos si viene en el payload
   if (Array.isArray(podologos)) {
     const insPod = req.db.prepare(`
-      INSERT INTO podologos_publicos (clinicaId, id, nombre, apellido, color, orden, descripcionPublica, horarioPublico, visibleEnWeb, activo, updatedAt)
-      VALUES (?,?,?,?,?,?,?,?,?,?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      INSERT INTO podologos_publicos (clinicaId, id, nombre, apellido, color, orden, descripcionPublica, horarioPublico, motivosPublicos, visibleEnWeb, activo, updatedAt)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     `);
     const upsertPodologos = req.db.transaction((arr) => {
       req.db.prepare('DELETE FROM podologos_publicos WHERE clinicaId = ?').run(req.clinicaId);
@@ -160,6 +160,13 @@ router.put('/sync-agenda', auth, (req, res) => {
           Number.isInteger(p.orden) ? p.orden : 0,
           p.descripcionPublica || null,
           p.horarioPublico ? JSON.stringify(p.horarioPublico) : null,
+          // Los servicios de este podólogo. NULL = hereda los de la clínica. Se limpia
+          // al entrar, igual que el catálogo de la clínica: un catálogo mal formado no
+          // puede llegar a la aritmética de disponibilidad.
+          (() => {
+            const l = require('../lib/motivos').normalizarMotivos(p.motivosPublicos);
+            return l ? JSON.stringify(l) : null;
+          })(),
           p.visibleEnWeb === false ? 0 : 1,
           p.activo === false ? 0 : 1
         );
@@ -451,6 +458,75 @@ function ocupadasPodologo(db, clinicaId, podologoId, fecha) {
  * ¿Está el slot (fecha+hora) libre para este podólogo concreto?
  * Considera: bloqueos, horario del podólogo (con fallback global), ocupaciones.
  */
+/**
+ * El catálogo de un podólogo: el suyo si lo tiene, y si no el de la clínica.
+ *
+ * Misma forma que `getHorarioPodologo()`, y a propósito: un especialista puede no ofrecer lo
+ * mismo que sus compañeros, igual que puede tener otro horario. Copiar el patrón en vez de
+ * inventar otro significa que solo hay una manera de hacer esto en todo el proyecto.
+ *
+ * `NULL` = hereda. La columna nace así, de modo que **nadie nota nada hasta que se
+ * personalice**.
+ */
+function getMotivosPodologo(db, clinicaId, podologoId) {
+  const cfgRow = db.prepare('SELECT config FROM agenda_config WHERE clinicaId = ?').get(clinicaId);
+  const cfg = cfgRow ? (() => { try { return JSON.parse(cfgRow.config); } catch (_) { return {}; } })() : {};
+
+  const pod = db.prepare(`
+    SELECT motivosPublicos FROM podologos_publicos
+    WHERE clinicaId = ? AND id = ? AND visibleEnWeb = 1 AND activo = 1
+  `).get(clinicaId, podologoId);
+
+  if (pod && pod.motivosPublicos) {
+    try {
+      const propios = JSON.parse(pod.motivosPublicos);
+      // Se pasa por el mismo saneado que el de la clínica: un catálogo mal formado no puede
+      // llegar a la aritmética de disponibilidad.
+      const limpios = require('../lib/motivos').normalizarMotivos(propios);
+      if (limpios) return { motivos: limpios, duracionSlot: cfg.duracionSlot };
+    } catch (_) { /* si no se puede leer, hereda */ }
+  }
+  return { motivos: cfg.motivos, duracionSlot: cfg.duracionSlot };
+}
+
+/**
+ * ¿Ofrece este podólogo ese servicio?
+ *
+ * Sin motivo pedido, todos lo ofrecen: es el comportamiento de siempre. Y si el podólogo
+ * hereda el catálogo de la clínica, ofrece lo mismo que ella.
+ */
+/**
+ * Todos los servicios que se pueden pedir en esta clínica: la UNIÓN de lo que ofrece cada
+ * podólogo visible, más el catálogo de la clínica para los que heredan.
+ *
+ * Es lo que ve el paciente en «¿A qué viene?». Si Germán hace biomecánica y su compañero no,
+ * la biomecánica **tiene que salir igualmente**: la ofrece la clínica, aunque solo la haga
+ * uno. Quién puede atenderle se decide después.
+ */
+function motivosDeLaClinica(db, clinicaId, podologosPub, cfg) {
+  const { motivosPublicos } = require('../lib/motivos');
+  const deLaClinica = motivosPublicos(cfg);
+  if (!podologosPub || !podologosPub.length) return deLaClinica;
+
+  const porId = new Map(deLaClinica.map(m => [m.id, m]));
+  for (const p of podologosPub) {
+    const { motivos } = getMotivosPodologo(db, clinicaId, p.id);
+    for (const m of motivosPublicos({ motivos })) {
+      if (!porId.has(m.id)) porId.set(m.id, m);
+    }
+  }
+  return [...porId.values()];
+}
+
+function ofreceMotivo(db, clinicaId, podologoId, motivoId) {
+  if (!motivoId) return true;
+  const { motivos } = getMotivosPodologo(db, clinicaId, podologoId);
+  // Sin catálogo configurado no se filtra a nadie: la clínica no ha dicho quién hace qué.
+  if (!Array.isArray(motivos) || !motivos.length) return true;
+  const m = motivos.find(x => x.id === String(motivoId).trim().toLowerCase());
+  return !!(m && m.activo !== false);
+}
+
 function isSlotLibreParaPodologo(db, clinicaId, podologoId, fecha, hora, duracionSlot, duracionCita = duracionSlot) {
   // 1. Día bloqueado (vacaciones, festivos)
   const bloqueada = db.prepare('SELECT 1 FROM bloqueos WHERE clinicaId = ? AND fecha = ?').get(clinicaId, fecha);
@@ -818,7 +894,15 @@ router.post('/reservar-slot', (req, res) => {
       //
       // Un motivo desconocido o desactivado cae a la duración por defecto — nunca falla,
       // porque reservar tiene que seguir funcionando aunque ese campo venga con basura.
-      const duracion = duracionDeMotivo(cfgRes, req.body.motivoId);
+      //
+      // Con podólogo concreto, contra SU catálogo: si su biomecánica dura 60 y la de
+      // su compañero 40, se bloquea lo que de verdad va a ocupar. Sin podólogo, el
+      // de la clínica, como siempre.
+      const cfgDuracion = podologoId
+        ? { motivos: getMotivosPodologo(req.db, clinicaId, podologoId).motivos,
+            duracionSlot: cfgRes.duracionSlot }
+        : cfgRes;
+      const duracion = duracionDeMotivo(cfgDuracion, req.body.motivoId);
 
       // La fecha debe caer dentro de la ventana publicada. La web solo ofrece lo
       // que devuelve /api/semana, que ya está acotado, pero una petición directa
@@ -891,7 +975,7 @@ router.post('/reservar-slot', (req, res) => {
         // El nombre sale del catálogo del servidor, no del navegador: así la clínica lee
         // en su agenda exactamente lo que se le ofreció al paciente. Si no vino motivoId,
         // se respeta el texto libre de siempre.
-        nombreDeMotivo(cfgRes, req.body.motivoId) || motivo || null,
+        nombreDeMotivo(cfgDuracion, req.body.motivoId) || motivo || null,
         observaciones?.trim() || null, podologoId || null,
         hashToken(token), token);
 
@@ -954,6 +1038,17 @@ router.get('/semana/:clinicaId', (req, res) => {
   `).all(req.params.clinicaId);
   const tienePodologos = podologosPub.length > 0;
 
+  // Quién puede atender ESE servicio. Si el paciente no ha elegido motivo, o si nadie ha
+  // personalizado su catálogo, son todos — y todo lo de abajo se comporta como siempre.
+  //
+  // ⚠️ Si el motivo lo ofrece alguien pero ninguno de los visibles, la lista queda vacía y no
+  // habrá huecos. Eso NO es un caso de vacaciones —para eso está el bloqueo de agenda— sino
+  // un error de configuración: se fue el único que lo hacía y nadie actualizó los motivos. La
+  // web lo dice con el teléfono en vez de enseñar una rejilla vacía sin explicación.
+  const puedenAtender = req.query.motivo
+    ? podologosPub.filter(p => ofreceMotivo(req.db, req.params.clinicaId, p.id, req.query.motivo))
+    : podologosPub;
+
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
 
   // Ventana de reserva en días hábiles
@@ -996,10 +1091,17 @@ router.get('/semana/:clinicaId', (req, res) => {
       const todosSlots = generarSlots(franjas, duracionSlot, duracionCita);
       if (enVentana && !bloqueada) {
         if (tienePodologos) {
-          // Pieza 3.3 — slot libre = al menos 1 podólogo visible lo tiene libre
+          // Pieza 3.3 — slot libre = al menos 1 podólogo visible lo tiene libre.
+          //
+          // Y desde los motivos por podólogo, solo cuentan **los que ofrecen ese servicio**:
+          // si únicamente uno hace biomecánica, en modo «cualquiera» se enseña su
+          // disponibilidad y no la de sus compañeros, que no pueden atenderle.
+          //
+          // Sin motivo pedido, o sin catálogos personalizados, `puedenAtender` son todos y
+          // esto se comporta exactamente como antes.
           slots = todosSlots.map(hora => {
-            const libre = podologosPub.some(p =>
-              isSlotLibreParaPodologo(req.db, req.params.clinicaId, p.id, fechaStr, hora, duracionSlot)
+            const libre = puedenAtender.some(p =>
+              isSlotLibreParaPodologo(req.db, req.params.clinicaId, p.id, fechaStr, hora, duracionSlot, duracionCita)
             );
             return { hora, libre };
           });
@@ -1038,7 +1140,13 @@ router.get('/semana/:clinicaId', (req, res) => {
     semanaInicio: semanaInicio.toISOString().slice(0, 10),
     // El catálogo va con la rejilla: la web necesita las dos cosas a la vez para
     // poder ofrecer el selector y recargar los huecos al cambiar de motivo.
-    motivos: motivosPublicos(cfg),
+    //
+    // Es la UNIÓN de lo que ofrece cada podólogo: si solo uno hace biomecánica, la
+    // biomecánica sale igual. Quién puede atenderle se decide después.
+    motivos: motivosDeLaClinica(req.db, req.params.clinicaId, podologosPub, cfg),
+    // Quién puede atender el servicio pedido. La página lo usa para saltarse el paso
+    // de «con quién» cuando solo hay uno, y enseñar su nombre.
+    podologosQuePueden: req.query.motivo ? puedenAtender.map(p => p.id) : null,
     ventanaInicio: fechaInicio.toISOString().slice(0, 10),
     ventanaFin: fechaFin.toISOString().slice(0, 10)
   });
@@ -1067,7 +1175,12 @@ router.get('/semana/:clinicaId/:podologoId', (req, res) => {
   // La duración la decide el SERVIDOR a partir del motivo. El cliente manda qué motivo,
   // nunca cuántos minutos: si viniera del navegador, una petición trucada pediría un
   // hueco de 5 min y se colaría entre dos citas. Sin motivo, la duración de siempre.
-  const duracionCita = duracionDeMotivo(cfg, req.query.motivo);
+  //
+  // Aquí se resuelve contra el catálogo de ESTE podólogo: si es especialista y su
+  // biomecánica dura 60 mientras la de su compañero dura 40, cada uno oferta la suya.
+  const suCatalogo = getMotivosPodologo(req.db, clinicaId, podologoId);
+  const duracionCita = duracionDeMotivo(
+    { motivos: suCatalogo.motivos, duracionSlot }, req.query.motivo);
 
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
   const fechaInicio = diasMin > 0 ? sumarDiasHabiles(hoy, diasMin, horario) : new Date(hoy);
@@ -1122,7 +1235,8 @@ router.get('/semana/:clinicaId/:podologoId', (req, res) => {
     semanaInicio: semanaInicio.toISOString().slice(0, 10),
     // El catálogo va con la rejilla: la web necesita las dos cosas a la vez para
     // poder ofrecer el selector y recargar los huecos al cambiar de motivo.
-    motivos: motivosPublicos(cfg),
+    // Los servicios de ESTE podólogo, que pueden no ser los de la clínica.
+    motivos: motivosPublicos({ motivos: suCatalogo.motivos }),
     ventanaInicio: fechaInicio.toISOString().slice(0, 10),
     ventanaFin: fechaFin.toISOString().slice(0, 10)
   });

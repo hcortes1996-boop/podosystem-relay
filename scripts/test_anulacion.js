@@ -139,12 +139,22 @@ setTimeout(async () => {
 
   console.log('\n── Fuera de plazo: NO anula, pero AVISA ──');
   // Una reserva para dentro de 2 h, metida directamente para controlar la hora.
+  // ⚠️ La fecha y la hora tienen que salir de la MISMA referencia.
+  //
+  // Antes la fecha venía de `toISOString()` —que es UTC— y la hora de `getHours()` —que es
+  // local—. En España, de 22:00 en adelante eso construye una cita del día ANTERIOR a la
+  // 01:54: una cita pasada, no una dentro de dos horas. El sistema respondía «pasada», que es
+  // correcto, y la prueba lo daba por fallo.
+  //
+  // Es decir: esta batería fallaba TODAS LAS NOCHES, con el código bien. Una prueba que canta
+  // lobo enseña a ignorar los rojos, que es peor que no tenerla.
   const en2h = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  const fechaLocal = `${en2h.getFullYear()}-${String(en2h.getMonth() + 1).padStart(2, '0')}-${String(en2h.getDate()).padStart(2, '0')}`;
   const { generarToken, hashToken } = require('../src/lib/anulacion');
   const tokCerca = generarToken();
   db.prepare(`INSERT INTO reservas (id, clinicaId, fecha, hora, duracion, nombre, telefono, tokenHash, tokenPlano)
               VALUES (?,?,?,?,?,?,?,?,?)`)
-    .run('res_cerca', CLINICA, en2h.toISOString().slice(0, 10),
+    .run('res_cerca', CLINICA, fechaLocal,
          `${String(en2h.getHours()).padStart(2, '0')}:${String(en2h.getMinutes()).padStart(2, '0')}`,
          30, 'Paciente Cerca', '600999888', hashToken(tokCerca), tokCerca);
 

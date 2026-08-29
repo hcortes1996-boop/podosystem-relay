@@ -218,6 +218,10 @@ function initDB() {
       orden              INTEGER NOT NULL DEFAULT 0,
       descripcionPublica TEXT,
       horarioPublico     TEXT,         -- JSON o NULL (fallback a agenda_config.horario)
+      -- Los servicios que ofrece ESTE podólogo. JSON o NULL para heredar los de la
+      -- clínica, igual que el horario: un especialista puede no hacer lo mismo que sus
+      -- compañeros. Nace en NULL, así que nadie nota nada hasta que se personalice.
+      motivosPublicos    TEXT,
       visibleEnWeb       INTEGER NOT NULL DEFAULT 1,
       activo             INTEGER NOT NULL DEFAULT 1,
       updatedAt          TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
@@ -245,6 +249,10 @@ function initDB() {
 
   // Migraciones incrementales (idempotentes: el catch ignora "column already exists")
   try { db.exec('ALTER TABLE agenda_snapshot ADD COLUMN horarioClinica TEXT'); } catch (_) {}
+  // Los servicios que ofrece cada podólogo. NULL = hereda los de la clínica, igual que
+  // `horarioPublico`. Sin esta línea, la columna solo existiría en bases nuevas y la de
+  // producción se quedaría sin ella — que es como se rompe una migración en silencio.
+  try { db.exec('ALTER TABLE podologos_publicos ADD COLUMN motivosPublicos TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE clinicas ADD COLUMN webUrl TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE clinicas ADD COLUMN netlifyId TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE clinicas ADD COLUMN logo BLOB'); } catch (_) {}
