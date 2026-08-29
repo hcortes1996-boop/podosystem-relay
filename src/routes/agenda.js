@@ -79,9 +79,22 @@ router.put('/sync-agenda', auth, (req, res) => {
   // Guardar config. `ventana` (opcional, PC ≥3.3.2) declara el rango que el PC
   // cubre de verdad; ventanaFin() acota la oferta a él para no ofertar días sin
   // datos de ocupación. Los PC que no la envían mantienen el comportamiento previo.
-  const configAGuardar = ventana && typeof ventana === 'object'
+  let configAGuardar = ventana && typeof ventana === 'object'
     ? { ...config, ventana }
-    : config;
+    : { ...config };
+
+  // El catálogo de motivos se limpia AL ENTRAR, no al usarlo. Si un catálogo mal formado
+  // llegara a la base, cada consulta de disponibilidad tendría que defenderse de él — y son
+  // seis sitios distintos. Aquí es uno.
+  //
+  // Si lo que llega no vale, se quita la clave en vez de guardar basura: sin motivos, la
+  // clínica usa los de fábrica y sigue reservando. Nunca se deja a medias.
+  {
+    const { normalizarMotivos } = require('../lib/motivos');
+    const limpios = normalizarMotivos(config.motivos);
+    if (limpios) configAGuardar.motivos = limpios;
+    else delete configAGuardar.motivos;
+  }
   req.db.prepare(`
     INSERT INTO agenda_config (clinicaId, config, updatedAt)
     VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
@@ -342,6 +355,8 @@ router.post('/citas-remote/sincronizadas', auth, (req, res) => {
   res.json({ ok: true, count: opIds.length });
 });
 
+const { duracionDeMotivo, motivosPublicos, nombreDeMotivo } = require('../lib/motivos');
+
 /* ── Helpers de cálculo ───────────────────────────────────────── */
 
 function timeToMinutes(t) {
@@ -436,7 +451,7 @@ function ocupadasPodologo(db, clinicaId, podologoId, fecha) {
  * ¿Está el slot (fecha+hora) libre para este podólogo concreto?
  * Considera: bloqueos, horario del podólogo (con fallback global), ocupaciones.
  */
-function isSlotLibreParaPodologo(db, clinicaId, podologoId, fecha, hora, duracionSlot) {
+function isSlotLibreParaPodologo(db, clinicaId, podologoId, fecha, hora, duracionSlot, duracionCita = duracionSlot) {
   // 1. Día bloqueado (vacaciones, festivos)
   const bloqueada = db.prepare('SELECT 1 FROM bloqueos WHERE clinicaId = ? AND fecha = ?').get(clinicaId, fecha);
   if (bloqueada) return false;
@@ -451,12 +466,12 @@ function isSlotLibreParaPodologo(db, clinicaId, podologoId, fecha, hora, duracio
   const franjas = horario[diaSemana] || [];
   if (!franjas.length) return false;
 
-  const todosSlots = generarSlots(franjas, duracionSlot);
+  const todosSlots = generarSlots(franjas, duracionSlot, duracionCita);
   if (!todosSlots.includes(hora)) return false;
 
   // 4. No ocupado (citas_ocupadas agregada + citas_podologo de este podólogo)
   const ocupadas = ocupadasPodologo(db, clinicaId, podologoId, fecha);
-  const libres = slotLibres([hora], ocupadas, duracionSlot);
+  const libres = slotLibres([hora], ocupadas, duracionCita);
   return libres.includes(hora);
 }
 
@@ -542,6 +557,10 @@ router.get('/dias-disponibles/:clinicaId', (req, res) => {
 
   const cfg = JSON.parse(row.config);
   const { duracionSlot = 30, diasMin = 1, diasMax = 14, horario = {} } = cfg;
+  // La duración la decide el SERVIDOR a partir del motivo. El cliente manda qué motivo,
+  // nunca cuántos minutos: si viniera del navegador, una petición trucada pediría un
+  // hueco de 5 min y se colaría entre dos citas. Sin motivo, la duración de siempre.
+  const duracionCita = duracionDeMotivo(cfg, req.query.motivo);
 
   const diasDisponibles = [];
   const hoy = new Date();
@@ -566,11 +585,11 @@ router.get('/dias-disponibles/:clinicaId', (req, res) => {
         .get(req.params.clinicaId, fechaStr);
 
       if (!bloqueada) {
-        const todosSlots = generarSlots(franjas, duracionSlot);
+        const todosSlots = generarSlots(franjas, duracionSlot, duracionCita);
         const ocupadas = req.db
           .prepare('SELECT hora, duracion FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ?')
           .all(req.params.clinicaId, fechaStr);
-        const libres = slotLibres(todosSlots, ocupadas, duracionSlot);
+        const libres = slotLibres(todosSlots, ocupadas, duracionCita);
         if (libres.length > 0) {
           diasDisponibles.push({ fecha: fechaStr, huecos: libres.length });
         }
@@ -606,18 +625,22 @@ router.get('/slots/:clinicaId/:fecha', (req, res) => {
   if (!row) return res.json({ ok: true, slots: [] });
 
   const cfg = JSON.parse(row.config);
+  // La duración la decide el SERVIDOR a partir del motivo. El cliente manda qué motivo,
+  // nunca cuántos minutos: si viniera del navegador, una petición trucada pediría un
+  // hueco de 5 min y se colaría entre dos citas. Sin motivo, la duración de siempre.
+  const duracionCita = duracionDeMotivo(cfg, req.query.motivo);
   const { duracionSlot = 30, horario = {} } = cfg;
 
   const d = new Date(fecha + 'T12:00:00Z');
   const diaSemana = String(d.getUTCDay());
   const franjas = horario[diaSemana] || [];
 
-  const todosSlots = generarSlots(franjas, duracionSlot);
+  const todosSlots = generarSlots(franjas, duracionSlot, duracionCita);
   const ocupadas = req.db
     .prepare('SELECT hora, duracion FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ?')
     .all(req.params.clinicaId, fecha);
 
-  const libres = slotLibres(todosSlots, ocupadas, duracionSlot);
+  const libres = slotLibres(todosSlots, ocupadas, duracionCita);
 
   res.json({ ok: true, fecha, slots: libres, duracionSlot });
 });
@@ -644,15 +667,17 @@ router.get('/slots/:clinicaId/:fecha/:podologoId', (req, res) => {
   if (!horario) return res.status(404).json({ ok: false, error: 'Podólogo no encontrado o no visible' });
 
   const cfgRow = req.db.prepare('SELECT config FROM agenda_config WHERE clinicaId = ?').get(clinicaId);
+  const cfgPod = cfgRow ? JSON.parse(cfgRow.config) : {};
+  const duracionCita = duracionDeMotivo(cfgPod, req.query.motivo);
   const duracionSlot = cfgRow ? (JSON.parse(cfgRow.config).duracionSlot || 30) : 30;
 
   const d = new Date(fecha + 'T12:00:00Z');
   const diaSemana = String(d.getUTCDay());
   const franjas = horario[diaSemana] || [];
 
-  const todosSlots = generarSlots(franjas, duracionSlot);
+  const todosSlots = generarSlots(franjas, duracionSlot, duracionCita);
   const ocupadas = ocupadasPodologo(req.db, clinicaId, podologoId, fecha);
-  const libres = slotLibres(todosSlots, ocupadas, duracionSlot);
+  const libres = slotLibres(todosSlots, ocupadas, duracionCita);
 
   res.json({ ok: true, fecha, slots: libres, duracionSlot });
 });
@@ -787,7 +812,13 @@ router.post('/reservar-slot', (req, res) => {
       // solapamientos, así que se calcula ANTES de verificar.
       const cfgRow = req.db.prepare('SELECT config FROM agenda_config WHERE clinicaId = ?').get(clinicaId);
       const cfgRes = cfgRow ? JSON.parse(cfgRow.config) : {};
-      const duracion = cfgRes.duracionSlot || 30;
+      // La duración sale del MOTIVO que pidió el paciente, resuelto contra el catálogo del
+      // servidor. El cliente manda `motivoId`, nunca minutos: si viniera del navegador, una
+      // petición trucada reservaría 5 minutos y se colaría entre dos citas.
+      //
+      // Un motivo desconocido o desactivado cae a la duración por defecto — nunca falla,
+      // porque reservar tiene que seguir funcionando aunque ese campo venga con basura.
+      const duracion = duracionDeMotivo(cfgRes, req.body.motivoId);
 
       // La fecha debe caer dentro de la ventana publicada. La web solo ofrece lo
       // que devuelve /api/semana, que ya está acotado, pero una petición directa
@@ -856,7 +887,12 @@ router.post('/reservar-slot', (req, res) => {
         INSERT INTO reservas (id, clinicaId, fecha, hora, duracion, nombre, telefono, email, motivo, observaciones, podologoId, tokenHash, tokenPlano)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
       `).run(id, clinicaId, fecha, hora, duracion, nombre.trim(), telefono.trim(),
-        email?.trim() || null, motivo || null, observaciones?.trim() || null, podologoId || null,
+        email?.trim() || null,
+        // El nombre sale del catálogo del servidor, no del navegador: así la clínica lee
+        // en su agenda exactamente lo que se le ofreció al paciente. Si no vino motivoId,
+        // se respeta el texto libre de siempre.
+        nombreDeMotivo(cfgRes, req.body.motivoId) || motivo || null,
+        observaciones?.trim() || null, podologoId || null,
         hashToken(token), token);
 
       return { id, duracion, token };
@@ -901,6 +937,15 @@ router.get('/semana/:clinicaId', (req, res) => {
 
   const cfg = JSON.parse(row.config);
   const { duracionSlot = 30, diasMin = 1, diasMax = 14, horario = {} } = cfg;
+
+  // La duración la decide el SERVIDOR a partir del motivo. El cliente manda qué motivo,
+  // nunca cuántos minutos: si viniera del navegador, una petición trucada pediría un hueco
+  // de 5 min y se colaría entre dos citas. Sin motivo, la duración de siempre.
+  //
+  // Este endpoint es el que pinta la rejilla que ve el paciente, así que es el que hace que
+  // «libre» pase a depender del servicio: las 11:00 salen verdes para una quiropodia de 20
+  // y rojas para un estudio de 40.
+  const duracionCita = duracionDeMotivo(cfg, req.query.motivo);
 
   // Pieza 3.3 — cargar podólogos publicados (si los hay, modo agregado considera unión)
   const podologosPub = req.db.prepare(`
@@ -948,7 +993,7 @@ router.get('/semana/:clinicaId', (req, res) => {
 
     let slots = [];
     if (franjas.length > 0) {
-      const todosSlots = generarSlots(franjas, duracionSlot);
+      const todosSlots = generarSlots(franjas, duracionSlot, duracionCita);
       if (enVentana && !bloqueada) {
         if (tienePodologos) {
           // Pieza 3.3 — slot libre = al menos 1 podólogo visible lo tiene libre
@@ -963,7 +1008,7 @@ router.get('/semana/:clinicaId', (req, res) => {
           const ocupadas = req.db
             .prepare('SELECT hora, duracion FROM citas_ocupadas WHERE clinicaId = ? AND fecha = ?')
             .all(req.params.clinicaId, fechaStr);
-          const libresArray = slotLibres(todosSlots, ocupadas, duracionSlot);
+          const libresArray = slotLibres(todosSlots, ocupadas, duracionCita);
           const libresSet = new Set(libresArray);
           slots = todosSlots.map(hora => ({ hora, libre: libresSet.has(hora) }));
         }
@@ -991,6 +1036,9 @@ router.get('/semana/:clinicaId', (req, res) => {
     dias,
     duracionSlot,
     semanaInicio: semanaInicio.toISOString().slice(0, 10),
+    // El catálogo va con la rejilla: la web necesita las dos cosas a la vez para
+    // poder ofrecer el selector y recargar los huecos al cambiar de motivo.
+    motivos: motivosPublicos(cfg),
     ventanaInicio: fechaInicio.toISOString().slice(0, 10),
     ventanaFin: fechaFin.toISOString().slice(0, 10)
   });
@@ -1016,6 +1064,10 @@ router.get('/semana/:clinicaId/:podologoId', (req, res) => {
 
   const cfg = JSON.parse(row.config);
   const { duracionSlot = 30, diasMin = 1, diasMax = 14 } = cfg;
+  // La duración la decide el SERVIDOR a partir del motivo. El cliente manda qué motivo,
+  // nunca cuántos minutos: si viniera del navegador, una petición trucada pediría un
+  // hueco de 5 min y se colaría entre dos citas. Sin motivo, la duración de siempre.
+  const duracionCita = duracionDeMotivo(cfg, req.query.motivo);
 
   const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
   const fechaInicio = diasMin > 0 ? sumarDiasHabiles(hoy, diasMin, horario) : new Date(hoy);
@@ -1047,10 +1099,10 @@ router.get('/semana/:clinicaId/:podologoId', (req, res) => {
 
     let slots = [];
     if (franjas.length > 0) {
-      const todosSlots = generarSlots(franjas, duracionSlot);
+      const todosSlots = generarSlots(franjas, duracionSlot, duracionCita);
       if (enVentana && !bloqueada) {
         const ocupadas = ocupadasPodologo(req.db, clinicaId, podologoId, fechaStr);
-        const libresArray = slotLibres(todosSlots, ocupadas, duracionSlot);
+        const libresArray = slotLibres(todosSlots, ocupadas, duracionCita);
         const libresSet = new Set(libresArray);
         slots = todosSlots.map(hora => ({ hora, libre: libresSet.has(hora) }));
       } else {
@@ -1068,6 +1120,9 @@ router.get('/semana/:clinicaId/:podologoId', (req, res) => {
   res.json({
     ok: true, dias, duracionSlot,
     semanaInicio: semanaInicio.toISOString().slice(0, 10),
+    // El catálogo va con la rejilla: la web necesita las dos cosas a la vez para
+    // poder ofrecer el selector y recargar los huecos al cambiar de motivo.
+    motivos: motivosPublicos(cfg),
     ventanaInicio: fechaInicio.toISOString().slice(0, 10),
     ventanaFin: fechaFin.toISOString().slice(0, 10)
   });
