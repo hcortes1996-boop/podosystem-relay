@@ -36,6 +36,7 @@ process.env.NODE_ENV = 'test';        // desactiva los límites de peticiones
 delete process.env.RESEND_API_KEY;    // sin clave, sendMail avisa y no envía nada
 
 let pasados = 0, fallados = 0;
+let db = null;
 const ok = (cond, nombre, extra) => {
   if (cond) { pasados++; console.log('  ✅ ' + nombre); }
   else { fallados++; console.log('  ❌ ' + nombre + (extra ? '\n       → ' + extra : '')); }
@@ -54,10 +55,17 @@ const pedir = (ruta, body) => fetch(`${BASE}/api/recuperacion/reasignar/${ruta}`
   body: JSON.stringify(body),
 }).then(async r => ({ status: r.status, body: await r.json().catch(() => ({})) }));
 
+process.on('uncaughtException', (e) => {
+  fallados++;
+  console.log('  💥 excepción no capturada: ' + e.message);
+  cerrar();
+});
+
 (async () => {
+ try {
   await new Promise(r => setTimeout(r, 900));
 
-  const db = require('better-sqlite3')(TMP);
+  db = require('better-sqlite3')(TMP);
   const sembrar = () => {
     db.prepare('DELETE FROM licencias WHERE licenseKey = ?').run(LICENCIA);
     db.prepare('DELETE FROM reasignaciones').run();
@@ -239,10 +247,26 @@ const pedir = (ruta, body) => fetch(`${BASE}/api/recuperacion/reasignar/${ruta}`
       'solo queda un código vivo, no dos');
   }
 
-  db.close();
+  } catch (e) {
+    fallados++;
+    console.log('  💥 la prueba ha reventado: ' + e.message);
+  }
+  cerrar();
+})();
+
+/**
+ * ⚠️ El resumen se imprime SIEMPRE, aunque la prueba reviente a mitad.
+ *
+ * Saboteando las defensas el 04-09-2026, tres de los seis sabotajes no imprimían nada: la
+ * prueba moría antes del resumen. Y «sin salida» es indistinguible de «pasó» cuando lo lees
+ * en una tanda de seis. Así es como una red de seguridad se vuelve decorativa sin que nadie
+ * lo note — el mismo patrón que llevamos toda la semana persiguiendo, pero en las pruebas.
+ */
+function cerrar() {
+  try { if (db) db.close(); } catch (_) {}
   try { fs.rmSync(TMP, { force: true }); } catch (_) {}
   try { fs.rmSync(TMP + '-wal', { force: true }); fs.rmSync(TMP + '-shm', { force: true }); } catch (_) {}
 
   console.log(`\n${fallados ? '❌' : '✅'} ${pasados} en verde, ${fallados} en rojo\n`);
   process.exit(fallados ? 1 : 0);
-})();
+}
