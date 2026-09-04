@@ -170,6 +170,34 @@ function initDB() {
     -- Aquí la fecha de fin se fija UNA vez, la primera que se ve esa huella, y no se
     -- vuelve a mover. La columna "dias" se guarda con la fila a propósito: si mañana el
     -- trial pasa a 90 días, los que ya empezaron conservan el suyo y no se alargan solos.
+    -- ── Reasignar una licencia a otro equipo, sin llamar a nadie ──────────────
+    --
+    -- Cuando a un cliente se le muere el ordenador, su licencia sigue atada al hardwareId
+    -- del PC muerto y /licencias/verificar responde 403 hardware_mismatch. Hasta el
+    -- 04-09-2026 la unica salida era que alguien entrara al panel y lo reescribiera a mano.
+    --
+    -- Aqui viven los codigos de un solo uso que permiten hacerlo solo, con el correo
+    -- registrado de la licencia (clienteEmail) como segundo factor.
+    --
+    -- El codigo se guarda HASHEADO, no en claro: quien consiga leer esta base no debe poder
+    -- usar un codigo que esta en vuelo. Con acceso de ESCRITURA daria igual —podria cambiar
+    -- el hardwareId directamente— pero contra una fuga de solo lectura si protege.
+    CREATE TABLE IF NOT EXISTS reasignaciones (
+      id            TEXT PRIMARY KEY,
+      licenciaId    TEXT NOT NULL,
+      codigoHash    TEXT NOT NULL,
+      creadoEn      TEXT NOT NULL,
+      expiraEn      TEXT NOT NULL,
+      intentos      INTEGER NOT NULL DEFAULT 0,
+      usadoEn       TEXT,
+      hardwareAntes TEXT,
+      hardwareNuevo TEXT,
+      ip            TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_reasignaciones_lic
+      ON reasignaciones(licenciaId, creadoEn DESC);
+
     CREATE TABLE IF NOT EXISTS trial_instalaciones (
       hardwareId    TEXT PRIMARY KEY,
       inicio        TEXT NOT NULL,

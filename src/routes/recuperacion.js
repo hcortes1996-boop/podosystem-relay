@@ -34,7 +34,9 @@
 
 const express   = require('express');
 const rateLimit = require('express-rate-limit');
+const crypto    = require('crypto');
 const { sendMail } = require('../email');
+const { genId } = require('../db');
 
 const router = express.Router();
 
@@ -215,6 +217,240 @@ router.post('/recuperacion/api-key', limiteApiKeyPorIP, limiteApiKeyPorLicencia,
   console.log(`[recuperacion] apiKey entregada · licencia ${String(licenseKey).slice(0, 8)}… · clinica ${clinica.id}`);
 
   return res.json({ ok: true, clinicaId: clinica.id, apiKey: clinica.apiKey });
+});
+
+/**
+ * ─────────────────────────────────────────────────────────────────────────────
+ * REASIGNAR UNA LICENCIA A OTRO EQUIPO
+ *
+ *   POST /api/recuperacion/reasignar/solicitar   { licenseKey }
+ *   POST /api/recuperacion/reasignar/confirmar   { licenseKey, codigo, hardwareId }
+ *
+ * ── Por qué existe ───────────────────────────────────────────────────────────
+ *
+ * A un cliente se le muere el ordenador. Compra otro, descarga PodoSystem, mete su licencia…
+ * y recibe un **403 hardware_mismatch**, porque la licencia sigue atada a la huella del PC
+ * muerto. Hasta el 04-09-2026 la única salida era que alguien con acceso al panel reescribiera
+ * el hardwareId a mano.
+ *
+ * Y no es solo la licencia: /recuperacion/api-key —que devuelve el clinicaId sin el cual la
+ * aplicación **no sabe ni qué carpeta del bucket contiene sus copias**— exige ese mismo
+ * hardware. Las dos puertas eran la misma, así que abrir esta abre las dos.
+ *
+ * ── Por qué aquí el relay SÍ decide, al contrario que en enviar-codigo ────────
+ *
+ * La cabecera de este fichero dice que el relay es «un cartero, no una autoridad»: en la
+ * recuperación de contraseña, el PC genera el código, lo guarda y lo verifica.
+ *
+ * **Aquí eso no puede funcionar, y conviene entender por qué:** en un ordenador nuevo no hay
+ * PC que genere ni verifique nada. Si quien pide mandara su propio código y su propio correo
+ * —como hace enviar-codigo— cualquiera con una licenseKey robada se aprobaría a sí mismo.
+ * Sería seguridad de adorno.
+ *
+ * Así que aquí el relay genera el código, lo guarda hasheado y lo verifica, y lo manda **a la
+ * dirección registrada en la licencia**, que el solicitante no elige.
+ *
+ * ⚠️ Lo que eso cambia, dicho de frente: el relay pasa a ser autoridad **para vincular
+ * licencias**. NO para los datos clínicos, que siguen en una copia cifrada cuya contraseña el
+ * relay no tiene ni puede deducir. La frase de la cabecera sigue siendo cierta donde importa.
+ *
+ * ── Las defensas ─────────────────────────────────────────────────────────────
+ *
+ *   · El código va SOLO al clienteEmail de la licencia. Quien roba una clave no controla ese
+ *     buzón.
+ *   · Seis dígitos con crypto.randomInt —no Math.random—, 15 minutos de vida y **5 intentos**.
+ *     Agotados, el código muere: 5 de un millón no es adivinable.
+ *   · Se guarda hasheado, para que una fuga de solo lectura no entregue códigos en vuelo.
+ *   · Un solo uso, y cada solicitud invalida la anterior.
+ *   · Queda registrado quién, cuándo, desde qué IP y de qué equipo a cuál.
+ *   · Y al terminar **se avisa por correo de que la licencia se ha movido**, para que el dueño
+ *     se entere aunque no haya sido él.
+ */
+
+/**
+ * Las dos plantillas viven aquí, fijas, por la misma razón que la de recuperación: lo único
+ * que entra de fuera es un código de seis dígitos. No hay forma de mandar texto propio a un
+ * tercero, ni asunto, ni HTML.
+ */
+function plantillaReasignacion({ codigo, nombre }) {
+  return `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;color:#1f2937">
+    <h2 style="color:#1E3A5F;margin:0 0 4px">PodoSystem en otro ordenador</h2>
+    <p>Hola${nombre ? ' ' + escapar(nombre) : ''},</p>
+    <p>Alguien ha pedido activar tu licencia de PodoSystem en un ordenador distinto.
+       Si has sido tú, escribe este código en la aplicación:</p>
+    <p style="font-size:2rem;font-weight:700;letter-spacing:.35rem;text-align:center;
+              background:#f3f4f6;border-radius:12px;padding:16px 0;margin:18px 0;color:#1E3A5F">${escapar(String(codigo))}</p>
+    <p style="color:#6b7280;font-size:.9rem">Caduca en 15 minutos y solo sirve una vez.</p>
+    <p style="color:#b91c1c;font-size:.9rem"><strong>Si no has sido tú, no hagas nada</strong> y
+       escribe a soporte@podosystem.es: sin este código, tu licencia no se mueve de sitio.</p>
+  </div>`;
+}
+
+function plantillaAvisoMovida({ nombre, cuando }) {
+  const f = new Date(cuando);
+  const legible = isNaN(f) ? String(cuando) : f.toLocaleString('es-ES');
+  return `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;color:#1f2937">
+    <h2 style="color:#1E3A5F;margin:0 0 4px">Tu licencia se ha activado en otro ordenador</h2>
+    <p>Hola${nombre ? ' ' + escapar(nombre) : ''},</p>
+    <p>Tu licencia de PodoSystem se ha vinculado a un ordenador nuevo el
+       <strong>${escapar(legible)}</strong>. El anterior ha dejado de estar autorizado.</p>
+    <p style="color:#b91c1c"><strong>Si no has sido tú</strong>, escribe cuanto antes a
+       soporte@podosystem.es.</p>
+    <p style="color:#6b7280;font-size:.9rem">Este aviso se manda siempre, aunque el cambio lo
+       hayas hecho tú: es la forma de que un movimiento no pase desapercibido.</p>
+  </div>`;
+}
+
+const ES_LICENCIA = /^[A-Z0-9-]{8,64}$/i;
+const VIDA_CODIGO_MS = 15 * 60 * 1000;
+const MAX_INTENTOS = 5;
+
+function hashCodigo(id, codigo) {
+  return crypto.createHash('sha256').update(id + ':' + codigo).digest('hex');
+}
+
+/** francisco@ejemplo.com → f···o@ejemplo.com. Confirma a dónde fue sin revelarlo. */
+function pistaEmail(email) {
+  const partes = String(email).split('@');
+  if (partes.length !== 2) return '···';
+  const u = partes[0];
+  const visible = u.length <= 2 ? u[0] : u[0] + '···' + u[u.length - 1];
+  return visible + '@' + partes[1];
+}
+
+const limiteReasignIP = enTest ? sinLimite : rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true, legacyHeaders: false,
+  message: { ok: false, error: 'Demasiados intentos. Prueba dentro de una hora.' },
+});
+
+const limiteReasignLic = enTest ? sinLimite : rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true, legacyHeaders: false,
+  keyGenerator: (req) => 'reasig:' + String(req.body && req.body.licenseKey || 'sin-licencia'),
+  message: { ok: false, error: 'Demasiados intentos con esta licencia. Prueba dentro de una hora.' },
+});
+
+function buscarLicencia(req, licenseKey) {
+  if (!licenseKey || !ES_LICENCIA.test(String(licenseKey))) {
+    return { error: { status: 400, cuerpo: { ok: false, error: 'licenseKey no válida' } } };
+  }
+  const lic = req.db.prepare('SELECT * FROM licencias WHERE licenseKey = ?').get(String(licenseKey));
+  if (!lic) return { error: { status: 404, cuerpo: { ok: false, error: 'Licencia no encontrada' } } };
+  if (lic.estado === 'blocked') {
+    return { error: { status: 403, cuerpo: { ok: false, error: 'Licencia bloqueada' } } };
+  }
+  return { lic };
+}
+
+router.post('/recuperacion/reasignar/solicitar', limiteReasignIP, limiteReasignLic, async (req, res) => {
+  const encontrada = buscarLicencia(req, req.body && req.body.licenseKey);
+  if (encontrada.error) return res.status(encontrada.error.status).json(encontrada.error.cuerpo);
+  const lic = encontrada.lic;
+
+  if (!lic.clienteEmail) {
+    return res.status(409).json({
+      ok: false,
+      error: 'Esta licencia no tiene un correo registrado. Escribe a soporte@podosystem.es.',
+    });
+  }
+
+  // 6 dígitos con generador criptográfico. Math.random es predecible, y esto es una
+  // credencial aunque solo dure quince minutos.
+  const codigo = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+  const ahora = new Date();
+
+  // Cada solicitud invalida la anterior: si alguien pide dos, solo vale la última.
+  req.db.prepare('DELETE FROM reasignaciones WHERE licenciaId = ? AND usadoEn IS NULL').run(lic.id);
+
+  const id = genId(12);
+  req.db.prepare('INSERT INTO reasignaciones (id, licenciaId, codigoHash, creadoEn, expiraEn, hardwareAntes, ip) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(id, lic.id, hashCodigo(id, codigo), ahora.toISOString(),
+         new Date(ahora.getTime() + VIDA_CODIGO_MS).toISOString(),
+         lic.hardwareId || null, req.ip || null);
+
+  try {
+    await sendMail({
+      to: lic.clienteEmail,
+      subject: 'Código para usar PodoSystem en otro ordenador',
+      html: plantillaReasignacion({ codigo, nombre: lic.clienteNombre }),
+    });
+  } catch (e) {
+    console.error('[reasignar] fallo al enviar:', e.message);
+    return res.status(502).json({ ok: false, error: 'No se pudo enviar el correo: ' + e.message });
+  }
+
+  // Ni el código ni el correo completo entran en el registro.
+  console.log('[reasignar] codigo enviado · licencia ' + String(lic.licenseKey).slice(0, 8) + '…');
+  return res.json({
+    ok: true,
+    enviadoA: pistaEmail(lic.clienteEmail),
+    validoMinutos: VIDA_CODIGO_MS / 60000,
+  });
+});
+
+router.post('/recuperacion/reasignar/confirmar', limiteReasignIP, limiteReasignLic, async (req, res) => {
+  const cuerpo = req.body || {};
+  const encontrada = buscarLicencia(req, cuerpo.licenseKey);
+  if (encontrada.error) return res.status(encontrada.error.status).json(encontrada.error.cuerpo);
+  const lic = encontrada.lic;
+
+  if (!/^\d{6}$/.test(String(cuerpo.codigo || ''))) {
+    return res.status(400).json({ ok: false, error: 'El código debe ser de 6 dígitos' });
+  }
+  if (!cuerpo.hardwareId || String(cuerpo.hardwareId).length < 8) {
+    return res.status(400).json({ ok: false, error: 'hardwareId requerido' });
+  }
+
+  const fila = req.db.prepare('SELECT * FROM reasignaciones WHERE licenciaId = ? AND usadoEn IS NULL ORDER BY creadoEn DESC LIMIT 1').get(lic.id);
+
+  if (!fila) {
+    return res.status(410).json({ ok: false, error: 'No hay ningún código pendiente. Pide uno nuevo.' });
+  }
+  if (new Date(fila.expiraEn) < new Date()) {
+    return res.status(410).json({ ok: false, error: 'El código ha caducado. Pide uno nuevo.' });
+  }
+  if (fila.intentos >= MAX_INTENTOS) {
+    return res.status(429).json({ ok: false, error: 'Demasiados intentos con este código. Pide uno nuevo.' });
+  }
+
+  if (hashCodigo(fila.id, String(cuerpo.codigo)) !== fila.codigoHash) {
+    req.db.prepare('UPDATE reasignaciones SET intentos = intentos + 1 WHERE id = ?').run(fila.id);
+    return res.status(401).json({
+      ok: false,
+      error: 'Código incorrecto',
+      intentosRestantes: Math.max(0, MAX_INTENTOS - (fila.intentos + 1)),
+    });
+  }
+
+  const ahora = new Date().toISOString();
+  const anterior = lic.hardwareId || null;
+
+  req.db.prepare("UPDATE licencias SET hardwareId = ?, instanceId = ?, estado = 'active', ultimaValidacion = ? WHERE id = ?")
+    .run(String(cuerpo.hardwareId), String(cuerpo.instanceId || ''), ahora, lic.id);
+
+  req.db.prepare('UPDATE reasignaciones SET usadoEn = ?, hardwareNuevo = ? WHERE id = ?')
+    .run(ahora, String(cuerpo.hardwareId), fila.id);
+
+  // El aviso va DESPUÉS de reasignar, y que falle no deshace nada: el cliente ya tiene su
+  // licencia funcionando, que es a lo que venía. Pero el fallo se registra.
+  try {
+    await sendMail({
+      to: lic.clienteEmail,
+      subject: 'Tu licencia de PodoSystem se ha activado en otro ordenador',
+      html: plantillaAvisoMovida({ nombre: lic.clienteNombre, cuando: ahora }),
+    });
+  } catch (e) {
+    console.error('[reasignar] licencia reasignada pero el aviso no salio:', e.message);
+  }
+
+  console.log('[reasignar] licencia ' + String(lic.licenseKey).slice(0, 8) + '… movida de ' +
+              (anterior ? anterior.slice(0, 8) + '…' : '(sin equipo)') + ' a ' +
+              String(cuerpo.hardwareId).slice(0, 8) + '…');
+
+  return res.json({ ok: true, estado: 'active', plan: lic.plan || 'clinica' });
 });
 
 module.exports = router;
