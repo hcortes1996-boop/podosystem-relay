@@ -350,10 +350,25 @@ router.post('/recuperacion/reasignar/solicitar', limiteReasignIP, limiteReasignL
   if (encontrada.error) return res.status(encontrada.error.status).json(encontrada.error.cuerpo);
   const lic = encontrada.lic;
 
+  // ⚠️ EL CALLEJÓN SIN SALIDA DE ESTE ENDPOINT, dicho de frente.
+  //
+  // Todo el mecanismo se apoya en que el código va a un buzón que el solicitante NO elige. Esa
+  // es justo su fuerza —quien roba una licenseKey no controla ese buzón— y justo su límite: si
+  // el dueño legítimo **ha perdido el acceso a ese correo**, o nunca hubo correo, no hay nada
+  // que este endpoint pueda hacer sin convertirse en seguridad de adorno.
+  //
+  // No se arregla con código. Se arregla diciéndolo claro y dando la salida manual, que existe:
+  // alguien con acceso al panel reescribe el hardwareId (`PUT /admin/api/licencias/:id`) tras
+  // comprobar la identidad por otra vía —la factura de compra, el teléfono de contacto—.
+  //
+  // Lo que NO se puede hacer es dejar que el solicitante proponga otro correo: eso es
+  // exactamente el sabotaje A de la prueba, y pasa en verde si nadie lo mira.
   if (!lic.clienteEmail) {
     return res.status(409).json({
       ok: false,
-      error: 'Esta licencia no tiene un correo registrado. Escribe a soporte@podosystem.es.',
+      motivo: 'sin-correo',
+      error: 'Esta licencia no tiene ningún correo registrado, así que no hay dónde enviar el código.',
+      queHacer: 'Escribe a soporte@podosystem.es desde cualquier dirección, indicando tu clave de licencia. Se comprobará tu identidad por otra vía y se reasignará a mano.',
     });
   }
 
@@ -388,6 +403,9 @@ router.post('/recuperacion/reasignar/solicitar', limiteReasignIP, limiteReasignL
     ok: true,
     enviadoA: pistaEmail(lic.clienteEmail),
     validoMinutos: VIDA_CODIGO_MS / 60000,
+    // La pista del correo sola no basta: el que ya no puede abrir ese buzón se queda mirando
+    // una pantalla que dice «revisa tu correo» para siempre. Hay que decirle que hay salida.
+    siNoPuedesAbrirEseCorreo: 'Escribe a soporte@podosystem.es desde cualquier dirección, indicando tu clave de licencia.',
   });
 });
 

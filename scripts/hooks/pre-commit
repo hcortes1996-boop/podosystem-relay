@@ -1,0 +1,52 @@
+#!/bin/sh
+#
+# pre-commit — la batería del relay tiene que estar en verde para poder comitear.
+#
+# ── Por qué existe ───────────────────────────────────────────────────────────
+#
+# El repositorio de PodoSystem tiene este mismo gancho desde el 03-09-2026, después de que
+# entraran dos commits en rojo el mismo día. **Aquí no lo había**, y se notó: escribiendo la
+# reasignación de licencias, un `git checkout` para deshacer un sabotaje se llevó por delante
+# los dos endpoints enteros, porque nunca se habían comiteado. Cuarta vez que pasaba lo mismo
+# en la misma semana.
+#
+# La regla «commitear antes de sabotear» estaba escrita y aun así se saltó. Lo que la cumple
+# no es acordarse: es que git no deje pasar un commit en rojo, y que comitear sea barato.
+#
+# ── Instalación ──────────────────────────────────────────────────────────────
+#
+#     git config core.hooksPath scripts/hooks
+#
+# Va aquí y no en `.git/hooks` porque `.git` no se versiona: así el gancho viaja con el
+# repositorio y lo tiene cualquiera que lo clone.
+#
+# ── Saltárselo ───────────────────────────────────────────────────────────────
+#
+#     git commit --no-verify
+#
+# Para eso está, pero cada vez que se use hay que poder explicar por qué.
+
+set -e
+
+# Solo documentación: no hace falta pasar un minuto de pruebas para cambiar un .md.
+CAMBIOS=$(git diff --cached --name-only --diff-filter=ACMR)
+if [ -n "$CAMBIOS" ] && ! echo "$CAMBIOS" | grep -qvE '^(docs/|.*\.md$)'; then
+  echo "✅ pre-commit: solo documentación, no se ejecuta la batería."
+  exit 0
+fi
+
+echo "🧪 pre-commit: pasando la batería del relay antes de comitear…"
+if npm test >/tmp/relay-pre-commit.log 2>&1; then
+  echo "✅ pre-commit: la batería está en verde."
+  exit 0
+fi
+
+echo ""
+echo "🛑 COMMIT ABORTADO — la batería está en rojo."
+echo ""
+tail -30 /tmp/relay-pre-commit.log
+echo ""
+echo "   Registro completo: /tmp/relay-pre-commit.log"
+echo "   Si de verdad hay que comitear así: git commit --no-verify"
+echo ""
+exit 1

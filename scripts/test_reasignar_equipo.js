@@ -83,12 +83,18 @@ process.on('uncaughtException', (e) => {
   const hwActual = () => db.prepare('SELECT hardwareId FROM licencias WHERE licenseKey = ?').get(LICENCIA).hardwareId;
   // Fuerza bruta de 6 dígitos sobre el hash guardado: así la prueba conoce el código sin que
   // el endpoint lo haya revelado nunca. Con 5 intentos reales sería imposible; aquí vale.
-  const averiguarCodigo = () => {
+  //
+  // ⚠️ Y CEDE EL TURNO cada 20.000 vueltas, que no es un detalle de estilo. El servidor corre
+  // en ESTE mismo proceso: un millón de hashes seguidos lo dejan sin atender peticiones, y el
+  // siguiente `fetch` muere con «fetch failed». Lanzada sola la prueba pasaba; dentro de la
+  // batería, no. Apareció al escribir `run-tests.js`, que es justo para lo que sirve.
+  const averiguarCodigo = async () => {
     const f = filaViva();
     if (!f) return null;
     for (let i = 0; i < 1000000; i++) {
       const c = String(i).padStart(6, '0');
       if (crypto.createHash('sha256').update(f.id + ':' + c).digest('hex') === f.codigoHash) return c;
+      if (i % 20000 === 0) await new Promise(r => setImmediate(r));
     }
     return null;
   };
@@ -190,7 +196,7 @@ process.on('uncaughtException', (e) => {
     const f = filaViva();
     db.prepare('UPDATE reasignaciones SET expiraEn = ? WHERE id = ?')
       .run(new Date(Date.now() - 1000).toISOString(), f.id);
-    const cod = averiguarCodigo();
+    const cod = await averiguarCodigo();
     const r = await pedir('confirmar', { licenseKey: LICENCIA, codigo: cod, hardwareId: HW_NUEVO });
     ok(r.status === 410, 'un código caducado no vale ni siendo el correcto', `status ${r.status}`);
     ok(hwActual() === HW_VIEJO, 'y la licencia sigue donde estaba');
@@ -199,7 +205,7 @@ process.on('uncaughtException', (e) => {
   console.log('\n── El camino feliz: el cliente se recupera solo ──');
   {
     await pedir('solicitar', { licenseKey: LICENCIA });
-    const cod = averiguarCodigo();
+    const cod = await averiguarCodigo();
     ok(!!cod && /^\d{6}$/.test(cod), 'el relay ha generado un código de 6 dígitos');
 
     const r = await pedir('confirmar', { licenseKey: LICENCIA, codigo: cod, hardwareId: HW_NUEVO });
@@ -236,15 +242,45 @@ process.on('uncaughtException', (e) => {
   {
     sembrar();
     await pedir('solicitar', { licenseKey: LICENCIA });
-    const primero = averiguarCodigo();
+    const primero = await averiguarCodigo();
     await pedir('solicitar', { licenseKey: LICENCIA });
-    const segundo = averiguarCodigo();
+    const segundo = await averiguarCodigo();
     ok(primero !== segundo, 'el segundo código es distinto del primero');
 
     const r = await pedir('confirmar', { licenseKey: LICENCIA, codigo: primero, hardwareId: HW_NUEVO });
     ok(r.status === 401, 'y el primero ya no sirve', `status ${r.status}`);
     ok(db.prepare('SELECT COUNT(*) c FROM reasignaciones WHERE usadoEn IS NULL').get().c === 1,
       'solo queda un código vivo, no dos');
+  }
+
+  console.log('\n── El callejón sin salida: cuando el correo no sirve ──');
+  {
+    // Este mecanismo se apoya en un buzón que el solicitante NO elige. Eso es su fuerza y su
+    // límite: si el dueño legítimo ya no puede abrir ese correo, no hay self-service posible.
+    // Lo que sí es obligación del endpoint es DECIRLO y dar la salida manual, en vez de dejar
+    // al cliente mirando un «revisa tu correo» que nunca llegará.
+    sembrar();
+    // Cadena vacía, no NULL: la columna es NOT NULL, pero eso NO impide el vacío. Y
+    // `PUT /admin/api/licencias/:id` escribe clienteEmail sin validar nada, así que esta
+    // rama es alcanzable de verdad — el alta la exige, la edición no.
+    db.prepare("UPDATE licencias SET clienteEmail = '' WHERE licenseKey = ?").run(LICENCIA);
+
+    const r = await pedir('solicitar', { licenseKey: LICENCIA });
+    ok(r.status === 409, 'sin correo registrado no se inventa un destino: 409', `status ${r.status}`);
+    ok(r.body.motivo === 'sin-correo', 'y el motivo es legible por la aplicación, no solo por un humano');
+    ok(/soporte@podosystem\.es/.test(r.body.queHacer || ''),
+      'y le dice EXACTAMENTE qué hacer, con la dirección de soporte');
+    ok(db.prepare('SELECT COUNT(*) c FROM reasignaciones').get().c === 0,
+      'y no deja un código huérfano que nadie podrá usar nunca');
+
+    // Y el caso más traicionero: el correo SÍ está, pero el cliente ya no lo controla. El
+    // relay no puede saberlo, así que la respuesta del camino feliz tiene que llevar la salida.
+    sembrar();
+    const feliz = await pedir('solicitar', { licenseKey: LICENCIA });
+    ok(/soporte@podosystem\.es/.test(feliz.body.siNoPuedesAbrirEseCorreo || ''),
+      'incluso al enviarlo bien, se dice adónde acudir si ese buzón ya no se puede abrir');
+    ok(!/duenyo@ejemplo\.test/.test(JSON.stringify(feliz.body)),
+      'y la respuesta sigue sin revelar el correo entero, solo la pista');
   }
 
   } catch (e) {
