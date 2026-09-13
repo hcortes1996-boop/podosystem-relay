@@ -272,6 +272,135 @@ router.put('/api/licencias/:id', authAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * Liberar una licencia para que la pueda activar otro ordenador.
+ *
+ * ── Para qué, y por qué no vale el flujo automático ──────────────────────────
+ *
+ * `POST /api/recuperacion/reasignar/*` ya deja que el cliente se lo haga solo, con un código
+ * al correo registrado. Eso cubre el caso normal. Pero el propio endpoint documenta su
+ * callejón: **si el dueño ha perdido el acceso a ese buzón, o nunca hubo correo, no hay nada
+ * que pueda hacer sin convertirse en seguridad de adorno.**
+ *
+ * Esta es esa salida manual, y hasta hoy se hacía **borrando a mano un campo de texto** en el
+ * modal de editar: sin motivo, sin rastro de quién lo hizo y sin que el titular se enterase.
+ *
+ * ── Tres decisiones, y conviene entender cada una ───────────────────────────
+ *
+ * 1. **Se pone `hardwareId` a NULL; NO se escribe la huella nueva.** El ordenador nuevo aún no
+ *    ha arrancado y no la sabemos — y pedirle a un cliente asustado que dicte por teléfono un
+ *    `MachineGuid` de 32 caracteres es un error de transcripción garantizado. Con NULL, la
+ *    rama `!lic.hardwareId` de `/licencias/verificar` hace que **el siguiente equipo que
+ *    active se la quede solo**.
+ *
+ * 2. **El motivo es obligatorio, y también cómo se comprobó la identidad.** No es burocracia:
+ *    es lo único que distingue «liberé la licencia de un cliente que me llamó y verifiqué por
+ *    la factura» de «alguien me convenció por teléfono». Sin eso, dentro de seis meses no hay
+ *    forma de saber qué pasó.
+ *
+ * 3. **Se avisa al correo registrado**, y el aviso va DESPUÉS de liberar: que el correo falle
+ *    no puede dejar la licencia a medias. Pero el fallo se registra.
+ *
+ * ⚠️ **Lo que esto NO da:** acceso a ningún dato clínico. Da acceso al programa. Las copias
+ * siguen cifradas con una contraseña que no tenemos ni podemos tener, así que aunque alguien
+ * nos engañara, se llevaría un programa vacío. Es lo que hace defendible el botón.
+ *
+ * ⚠️ **El riesgo real, dicho de frente:** con `hardwareId` a NULL, **quien active primero se la
+ * lleva**. Si se libera y el cliente tarda tres días, hay tres días de ventana. Se cerraría con
+ * una caducidad, pero eso es una columna nueva; con cinco licencias, el aviso por correo y la
+ * fila de auditoría bastan. Queda dicho, no resuelto.
+ */
+router.post('/api/licencias/:id/liberar', authAdmin, async (req, res) => {
+  const motivo    = String(req.body?.motivo || '').trim();
+  const comoIdent = String(req.body?.identidadVerificada || '').trim();
+
+  if (motivo.length < 10) {
+    return res.status(400).json({ ok: false, error: 'Escribe el motivo (al menos 10 caracteres). Sin él no queda rastro de por qué se liberó.' });
+  }
+  if (comoIdent.length < 5) {
+    return res.status(400).json({ ok: false, error: 'Indica CÓMO comprobaste que es el titular (factura, teléfono registrado, correo...).' });
+  }
+
+  const lic = req.db.prepare('SELECT * FROM licencias WHERE id = ?').get(req.params.id);
+  if (!lic) return res.status(404).json({ ok: false, error: 'Licencia no encontrada' });
+  if (!lic.hardwareId) {
+    return res.status(409).json({ ok: false, error: 'Esta licencia ya está libre: no tiene ningún equipo asignado.' });
+  }
+
+  const ahora    = new Date().toISOString();
+  const anterior = lic.hardwareId;
+
+  req.db.prepare("UPDATE licencias SET hardwareId = NULL, instanceId = '', ultimaValidacion = ? WHERE id = ?")
+    .run(ahora, lic.id);
+
+  // Misma tabla que la reasignación automática, para que el historial de una licencia se lea
+  // en un solo sitio. `codigoHash` vacío y `usadoEn` ya puesto la distinguen: aquí no hubo
+  // código, hubo una persona.
+  try {
+    req.db.prepare(`INSERT INTO reasignaciones
+      (id, licenciaId, codigoHash, creadoEn, expiraEn, usadoEn, hardwareAntes, hardwareNuevo, ip)
+      VALUES (?, ?, '', ?, ?, ?, ?, NULL, ?)`)
+      .run(genId(12), lic.id, ahora, ahora, ahora, anterior, req.ip || null);
+  } catch (e) {
+    console.error('[liberar] la licencia se libero pero no se pudo anotar:', e.message);
+  }
+
+  req.db.prepare('UPDATE licencias SET notas = ? WHERE id = ?').run(
+    `${lic.notas ? lic.notas + '\n' : ''}[${ahora.slice(0, 16)}] Liberada por soporte. Motivo: ${motivo} · Identidad comprobada por: ${comoIdent}`,
+    lic.id,
+  );
+
+  // Ni el aviso ni su fallo deshacen nada: el cliente ya puede activar, que es a lo que venía.
+  let avisado = false;
+  if (lic.clienteEmail) {
+    try {
+      const { sendMail } = require('../email');
+      await sendMail({
+        to: lic.clienteEmail,
+        subject: 'Tu licencia de PodoSystem se ha liberado para otro ordenador',
+        html: `<p>Hola${lic.clienteNombre ? ' ' + lic.clienteNombre : ''},</p>
+<p>A petición tuya, hemos liberado tu licencia de PodoSystem para que puedas activarla en un
+ordenador nuevo. La próxima vez que introduzcas tu clave de licencia, el equipo donde lo hagas
+quedará asociado a ella.</p>
+<p><strong>Si no has sido tú quien lo ha pedido</strong>, responde a este correo cuanto antes.</p>
+<p style="color:#666;font-size:13px">Fecha: ${ahora.slice(0, 16).replace('T', ' ')}</p>`,
+      });
+      avisado = true;
+    } catch (e) {
+      console.error('[liberar] licencia liberada pero el aviso no salio:', e.message);
+    }
+  }
+
+  console.log(`[liberar] licencia ${String(lic.licenseKey).slice(0, 8)}… liberada del equipo ` +
+              `${anterior.slice(0, 8)}… · motivo: ${motivo.slice(0, 60)}`);
+
+  res.json({
+    ok: true,
+    avisado,
+    avisoError: !avisado && lic.clienteEmail ? 'No se pudo enviar el aviso por correo' : null,
+    sinCorreo: !lic.clienteEmail,
+  });
+});
+
+/** El historial de una licencia: quién la movió, cuándo, y de qué equipo a cuál. */
+router.get('/api/licencias/:id/historial', authAdmin, (req, res) => {
+  const filas = req.db.prepare(
+    'SELECT creadoEn, usadoEn, hardwareAntes, hardwareNuevo, ip, codigoHash FROM reasignaciones WHERE licenciaId = ? ORDER BY creadoEn DESC LIMIT 50'
+  ).all(req.params.id);
+  res.json({
+    ok: true,
+    // `codigoHash` vacío = la liberó una persona desde el panel. Con hash = el cliente lo hizo
+    // solo con el código del correo. Nunca se devuelve el hash.
+    historial: filas.map(f => ({
+      cuando: f.usadoEn || f.creadoEn,
+      via: f.codigoHash ? 'el cliente, con código por correo' : 'soporte, desde el panel',
+      de: f.hardwareAntes ? String(f.hardwareAntes).slice(0, 8) + '…' : null,
+      a:  f.hardwareNuevo ? String(f.hardwareNuevo).slice(0, 8) + '…' : '(sin asignar aún)',
+      ip: f.ip || null,
+    })),
+  });
+});
+
 router.delete('/api/licencias/:id', authAdmin, (req, res) => {
   req.db.prepare('DELETE FROM licencias WHERE id = ?').run(req.params.id);
   res.json({ ok: true });

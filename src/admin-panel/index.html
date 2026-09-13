@@ -403,6 +403,48 @@
   </div>
 </div>
 
+<!-- MODAL: Liberar licencia para otro ordenador -->
+<div id="modal-liberar" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+  <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-lg mx-4">
+    <h3 class="text-lg font-bold text-gray-800 mb-1">🔓 Liberar licencia de <span id="lib-nombre"></span></h3>
+    <p class="text-xs text-gray-500 mb-4">
+      El equipo actual deja de tenerla y <strong>el próximo ordenador que la active se la queda</strong>.
+      Se avisará por correo al titular.
+    </p>
+    <input type="hidden" id="lib-id">
+
+    <div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 mb-4 text-xs text-amber-900 leading-relaxed">
+      <strong>Antes de liberar:</strong> si el cliente puede abrir su correo registrado, dile que lo haga
+      él desde la aplicación —«¿Ya tenías PodoSystem?»— y no toques esto. Este botón es para cuando
+      <strong>no puede</strong>: ha perdido el acceso al buzón, o la licencia no tiene correo.
+    </div>
+
+    <div class="space-y-3">
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Motivo <span class="text-red-500">*</span></label>
+        <textarea id="lib-motivo" rows="2" placeholder="Ej.: se le estropeó el PC y no recuerda la contraseña del correo de contacto"
+          class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-500"></textarea>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">¿Cómo comprobaste que es el titular? <span class="text-red-500">*</span></label>
+        <input type="text" id="lib-identidad" placeholder="Ej.: llamó desde el teléfono registrado y dio el nº de factura"
+          class="w-full px-3 py-2 border-2 border-gray-200 rounded-lg text-sm focus:outline-none focus:border-amber-500">
+        <p class="text-[11px] text-gray-400 mt-1">
+          Queda anotado en la licencia. Es lo único que distingue una liberación legítima de un engaño por teléfono.
+        </p>
+      </div>
+    </div>
+
+    <div id="lib-error" class="hidden mt-3 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700"></div>
+    <div id="lib-ok" class="hidden mt-3 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg text-xs text-emerald-800"></div>
+
+    <div class="flex gap-3 mt-4">
+      <button onclick="hideModal('modal-liberar')" class="flex-1 py-2 border-2 border-gray-200 rounded-lg text-sm font-medium text-gray-600 hover:border-gray-300 transition">Cancelar</button>
+      <button id="lib-btn" onclick="liberarLicencia()" class="flex-1 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold hover:bg-amber-700 transition">Liberar</button>
+    </div>
+  </div>
+</div>
+
 <!-- MODAL: Campos faltantes para activar web -->
 <div id="modal-campos-faltantes" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-50">
   <div class="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-md mx-4">
@@ -584,6 +626,10 @@ async function loadLicencias() {
       <td class="px-4 py-3 flex gap-2">
         <button onclick="editarLicencia(${JSON.stringify(l).replace(/"/g,'&quot;')})"
           class="text-xs px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 transition font-medium">Editar</button>
+        ${l.hardwareId ? `<button onclick="abrirLiberar('${l.id}', '${esc(l.clienteNombre)}')"
+          title="El cliente ha cambiado de ordenador y no puede usar el código por correo"
+          class="text-xs px-3 py-1.5 bg-amber-50 text-amber-800 rounded-lg hover:bg-amber-100 transition font-medium">🔓 Liberar</button>`
+        : `<span class="text-xs px-3 py-1.5 text-gray-400" title="No tiene ningún equipo asignado: el próximo que active se la queda">libre</span>`}
         <button onclick="eliminarLicencia('${l.id}', '${esc(l.clienteNombre)}', ${l.fuente === 'lemonsqueezy'})"
           class="text-xs px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition font-medium">Eliminar</button>
       </td>
@@ -660,6 +706,49 @@ async function guardarLicencia() {
   });
   hideModal('modal-editar-licencia');
   loadLicencias();
+}
+
+function abrirLiberar(id, nombre) {
+  document.getElementById('lib-id').value      = id;
+  document.getElementById('lib-nombre').textContent = nombre;
+  document.getElementById('lib-motivo').value    = '';
+  document.getElementById('lib-identidad').value = '';
+  document.getElementById('lib-error').classList.add('hidden');
+  document.getElementById('lib-ok').classList.add('hidden');
+  document.getElementById('lib-btn').disabled = false;
+  showModal('modal-liberar');
+}
+
+async function liberarLicencia() {
+  const err = document.getElementById('lib-error');
+  const okEl = document.getElementById('lib-ok');
+  const btn = document.getElementById('lib-btn');
+  err.classList.add('hidden'); okEl.classList.add('hidden');
+
+  const motivo    = document.getElementById('lib-motivo').value.trim();
+  const identidad = document.getElementById('lib-identidad').value.trim();
+  // Se valida aquí ADEMÁS de en el servidor: el servidor es quien manda, pero decirlo antes
+  // de la llamada evita liberar a medias y tener que explicar un error genérico.
+  if (motivo.length < 10)    { err.textContent = 'Escribe el motivo (al menos 10 caracteres).'; err.classList.remove('hidden'); return; }
+  if (identidad.length < 5)  { err.textContent = 'Indica cómo comprobaste que es el titular.'; err.classList.remove('hidden'); return; }
+
+  btn.disabled = true;
+  const r = await api('POST', `/admin/api/licencias/${document.getElementById('lib-id').value}/liberar`,
+                      { motivo, identidadVerificada: identidad });
+  if (!r || r.ok !== true) {
+    err.textContent = (r && r.error) || 'No se pudo liberar';
+    err.classList.remove('hidden');
+    btn.disabled = false;
+    return;
+  }
+
+  okEl.innerHTML = '✅ <strong>Licencia liberada.</strong> El próximo ordenador que la active se la queda.'
+    + (r.sinCorreo ? '<br>⚠️ Esta licencia no tiene correo registrado, así que no se ha podido avisar a nadie.'
+       : r.avisado ? '<br>Se ha avisado por correo al titular.'
+       : '<br>⚠️ La licencia está liberada, pero <strong>el aviso por correo no salió</strong>. Avisa tú al cliente.');
+  okEl.classList.remove('hidden');
+  loadLicencias();
+  setTimeout(() => hideModal('modal-liberar'), 4000);
 }
 
 async function eliminarLicencia(id, nombre, esLemonSqueezy = false) {
