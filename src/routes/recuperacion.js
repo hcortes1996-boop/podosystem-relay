@@ -288,7 +288,16 @@ function plantillaReasignacion({ codigo, nombre }) {
 
 function plantillaAvisoMovida({ nombre, cuando }) {
   const f = new Date(cuando);
-  const legible = isNaN(f) ? String(cuando) : f.toLocaleString('es-ES');
+  // ⚠️ La zona horaria hay que decirla: `toLocaleString('es-ES')` formatea el día y el mes a la
+  // española, pero deja la HORA en la del servidor — y Railway va en UTC. Francisco lo vio el
+  // 17-09-2026: recibió a las 22:34 un aviso que decía «20:34:28», dos horas menos.
+  //
+  // En un correo de seguridad eso no es cosmético: es el dato con el que alguien decide si el
+  // movimiento lo hizo él o no. Una hora en la que uno «no estaba tocando nada» puede hacer que
+  // dé por bueno un robo, o que denuncie un cambio suyo.
+  const legible = isNaN(f)
+    ? String(cuando)
+    : f.toLocaleString('es-ES', { timeZone: 'Europe/Madrid' }) + ' (hora peninsular)';
   return `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;color:#1f2937">
     <h2 style="color:#1E3A5F;margin:0 0 4px">Tu licencia se ha activado en otro ordenador</h2>
     <p>Hola${nombre ? ' ' + escapar(nombre) : ''},</p>
