@@ -299,6 +299,86 @@ function check(name, cond, info) {
       emailMod.sendMail = async (args) => { mailCalls.push(args); }; // restaurar mock
     }
 
+    // ── La web pública de reservas se apaga y se enciende con la suscripción ──
+    //
+    // Hasta el 18-09-2026 **nadie ponía `clinicas.activa` a 0 jamás**: la licencia pasaba a
+    // `expired` y la web del cliente seguía ofreciendo huecos indefinidamente. Los pacientes
+    // reservaban citas que el PC —en muro— ya no recogía, y se presentaban a una consulta que
+    // no les esperaba. El interruptor existía (once rutas públicas comprueban `activa = 1`);
+    // faltaba el cable.
+
+    // T14 — cancelar la suscripción CIERRA la web
+    {
+      await call(server, makeCheckoutEvent('evt_014a', 'cs_014', 'sub_014', 'cliente14@test.es', 'clinica'));
+      const lic = db.prepare("SELECT * FROM licencias WHERE suscripcionId = 'sub_014'").get();
+      const antes = db.prepare('SELECT activa FROM clinicas WHERE id = ?').get(lic?.clinicaId);
+      check('T14 la web nace abierta', antes?.activa === 1, `got ${antes?.activa}`);
+
+      await call(server, makeSubDeletedEvent('evt_014b', 'sub_014'));
+      const despues = db.prepare('SELECT activa FROM clinicas WHERE id = ?').get(lic?.clinicaId);
+      check('T14 al cancelar, la web queda CERRADA', despues?.activa === 0, `got ${despues?.activa}`);
+    }
+
+    // T15 — y volver a pagar la REABRE. La puerta es reversible a propósito: si no, un cliente
+    // que reactiva se quedaría con la web muerta y sin saber por qué.
+    {
+      const lic = db.prepare("SELECT * FROM licencias WHERE suscripcionId = 'sub_014'").get();
+      await call(server, makeInvoiceEvent('evt_015', 'invoice.payment_succeeded', 'sub_014', 'cliente14@test.es'));
+      const row = db.prepare('SELECT activa FROM clinicas WHERE id = ?').get(lic?.clinicaId);
+      check('T15 al volver a cobrar, la web se REABRE', row?.activa === 1, `got ${row?.activa}`);
+      const l2 = db.prepare("SELECT estado FROM licencias WHERE suscripcionId = 'sub_014'").get();
+      check('T15 y la licencia vuelve a active', l2?.estado === 'active', `got ${l2?.estado}`);
+    }
+
+    // T16 — el impago CONFIRMADO por Stripe también cierra
+    {
+      await call(server, makeCheckoutEvent('evt_016a', 'cs_016', 'sub_016', 'cliente16@test.es', 'basico'));
+      const lic = db.prepare("SELECT * FROM licencias WHERE suscripcionId = 'sub_016'").get();
+      mockSubStatus = 'canceled';
+      await call(server, makeInvoiceEvent('evt_016b', 'invoice.payment_failed', 'sub_016', 'cliente16@test.es'));
+      const row = db.prepare('SELECT activa FROM clinicas WHERE id = ?').get(lic?.clinicaId);
+      check('T16 impago confirmado: web CERRADA', row?.activa === 0, `got ${row?.activa}`);
+      mockSubStatus = 'active';   // restaurar, o contamina los casos siguientes
+    }
+
+    // T17 — REGRESIÓN: un payment_failed que Stripe NO confirma no puede cerrar la web.
+    // Es la misma regla que T10 para el estado de la licencia. Sin esto, un fallo transitorio
+    // de cobro dejaría sin reservas online a una clínica que SÍ está pagando.
+    {
+      await call(server, makeCheckoutEvent('evt_017a', 'cs_017', 'sub_017', 'cliente17@test.es', 'basico'));
+      const lic = db.prepare("SELECT * FROM licencias WHERE suscripcionId = 'sub_017'").get();
+      mockSubStatus = 'active';
+      await call(server, makeInvoiceEvent('evt_017b', 'invoice.payment_failed', 'sub_017', 'cliente17@test.es'));
+      const row = db.prepare('SELECT activa FROM clinicas WHERE id = ?').get(lic?.clinicaId);
+      check('T17 fallo transitorio: la web sigue ABIERTA', row?.activa === 1, `got ${row?.activa}`);
+    }
+
+    // T18 — una licencia cuyo `clinicaId` apunta a una clínica que NO existe.
+    // No es hipotético: el 27-08-2026, **4 de 5 licencias de producción** estaban así.
+    {
+      db.prepare(`INSERT INTO licencias (id, licenseKey, clienteNombre, clienteEmail, clinicaId,
+                    estado, fuente, suscripcionId)
+                  VALUES ('lic_huerfana', 'PODO-HUERFANA-0001', 'Sin clinica', 'huerfana@test.es',
+                    'NO_EXISTE', 'active', 'stripe', 'sub_018')`).run();
+      const r = await call(server, makeSubDeletedEvent('evt_018', 'sub_018'));
+      check('T18 un clinicaId inexistente NO tumba el webhook', r.status === 200, `got ${r.status}`);
+      const l = db.prepare("SELECT estado FROM licencias WHERE suscripcionId = 'sub_018'").get();
+      check('T18 y la licencia sí se marca expired', l?.estado === 'expired', `got ${l?.estado}`);
+    }
+
+    // T19 — y una licencia SIN clinicaId tampoco. Si esto lanzara, Stripe recibiría un 500 y
+    // reintentaría el webhook indefinidamente.
+    {
+      db.prepare(`INSERT INTO licencias (id, licenseKey, clienteNombre, clienteEmail,
+                    estado, fuente, suscripcionId)
+                  VALUES ('lic_sin_clinica', 'PODO-SINCLIN-0001', 'Sin enlazar', 'sinclin@test.es',
+                    'active', 'stripe', 'sub_019')`).run();
+      const r = await call(server, makeSubDeletedEvent('evt_019', 'sub_019'));
+      check('T19 sin clinicaId, el webhook responde 200', r.status === 200, `got ${r.status}`);
+      const l = db.prepare("SELECT estado FROM licencias WHERE suscripcionId = 'sub_019'").get();
+      check('T19 y la licencia se marca expired igual', l?.estado === 'expired', `got ${l?.estado}`);
+    }
+
   } finally {
     // NOTA: no llamamos server.close() ni db.close() — libuv Windows lanza
     // assertion en cleanup. process.exit es suficiente.

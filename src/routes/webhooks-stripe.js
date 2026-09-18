@@ -45,17 +45,53 @@ function genLicenseKey() {
   return [0, 4, 8, 12, 16].map((s, i, a) => bytes.slice(s, a[i + 1] || bytes.length)).join('-');
 }
 
+// ⚠️ `clinicaId` entra aquí el 18-09-2026, y no es decorativo: sin él,
+// `ajustarWebPublica()` haría `WHERE id = undefined` y **no apagaría nada**, dejando la web de
+// reservas abierta mientras el log decía que todo fue bien.
 function findLicenciaByStripe(db, suscripcionId, email) {
   if (suscripcionId) {
-    const l = db.prepare('SELECT id, estado FROM licencias WHERE suscripcionId = ?').get(String(suscripcionId));
+    const l = db.prepare('SELECT id, estado, clinicaId FROM licencias WHERE suscripcionId = ?').get(String(suscripcionId));
     if (l) return l;
   }
   if (email) {
     return db.prepare(
-      "SELECT id, estado FROM licencias WHERE clienteEmail = ? AND fuente = 'stripe' ORDER BY createdAt DESC LIMIT 1"
+      "SELECT id, estado, clinicaId FROM licencias WHERE clienteEmail = ? AND fuente = 'stripe' ORDER BY createdAt DESC LIMIT 1"
     ).get(email);
   }
   return null;
+}
+
+/**
+ * ─── La web pública de reservas se apaga y se enciende con la suscripción ────
+ *
+ * Hasta el 18-09-2026 **nadie ponía `clinicas.activa` a 0 jamás**. La licencia pasaba a
+ * `expired` y la web del cliente seguía ofreciendo huecos indefinidamente: pacientes reservando
+ * citas que ya nadie iba a atender, porque el PC está en muro y no las recoge.
+ *
+ * El interruptor ya existía —las rutas públicas comprueban `activa = 1` en once sitios—, solo
+ * faltaba el cable. Y es reversible a propósito: al volver a cobrar, se abre otra vez sola.
+ *
+ * Está en UN sitio y no repartido por los tres handlers: tres UPDATE iguales son tres sitios
+ * que el día de mañana divergen, que es exactamente cómo `licenciaExpiradaMode` acabó cubriendo
+ * unos handlers sí y otros no en el PC.
+ *
+ * ⚠️ **Se comprueba `changes === 0`.** El 27-08-2026, **4 de 5 licencias de producción apuntaban
+ * a clínicas inexistentes** (`clinicaId` relleno a mano y mal). Sin esta comprobación el UPDATE
+ * no afectaría a ninguna fila, no daría error, y nos quedaríamos creyendo que la web está
+ * cerrada mientras sigue abierta.
+ */
+function ajustarWebPublica(db, lic, activa, etiqueta) {
+  const accion = activa ? 'abrir' : 'cerrar';
+  if (!lic || !lic.clinicaId) {
+    console.warn(`[webhook-stripe/${etiqueta}] Licencia ${lic?.id} sin clinicaId — no hay web que ${accion}`);
+    return;
+  }
+  const r = db.prepare('UPDATE clinicas SET activa = ? WHERE id = ?').run(activa ? 1 : 0, lic.clinicaId);
+  if (r.changes === 0) {
+    console.warn(`[webhook-stripe/${etiqueta}] clinicaId=${lic.clinicaId} no existe — NO se ha podido ${accion} ninguna web`);
+    return;
+  }
+  console.log(`[webhook-stripe/${etiqueta}] Web pública de ${lic.clinicaId} -> ${activa ? 'ABIERTA' : 'CERRADA'}`);
 }
 
 // El id de suscripcion en un invoice cambio de sitio en la API 2026-06-24.dahlia:
@@ -250,6 +286,9 @@ function handleInvoicePaid(db, invoice) {
   }
   db.prepare('UPDATE licencias SET ultimaValidacion=?, estado=? WHERE id=?')
     .run(new Date().toISOString(), 'active', lic.id);
+  // Vuelve a pagar -> vuelve a haber reservas online. Es la mitad reversible de la puerta: sin
+  // esto, un cliente que reactiva se quedaría con la web muerta y sin saber por qué.
+  ajustarWebPublica(db, lic, true, 'invoice_paid');
   console.log(`[webhook-stripe/invoice_paid] Licencia ${lic.id} renovada`);
 }
 
@@ -261,6 +300,9 @@ function handleSubscriptionDeleted(db, subscription) {
     return;
   }
   db.prepare('UPDATE licencias SET estado=? WHERE id=?').run('expired', lic.id);
+  // Y se cierra la web de reservas: si no, los pacientes siguen cogiendo hueco en una agenda
+  // que el PC ya no sincroniza — y se presentan a una cita que la clínica nunca llegó a ver.
+  ajustarWebPublica(db, lic, false, 'sub_deleted');
   console.log(`[webhook-stripe/sub_deleted] Licencia ${lic.id} -> expired`);
 }
 
@@ -291,6 +333,9 @@ async function handleInvoiceFailed(db, invoice) {
     return;
   }
   db.prepare('UPDATE licencias SET estado=? WHERE id=?').run('expired', lic.id);
+  // Mismo criterio que en sub_deleted. Este camino llega DESPUÉS de comprobar contra Stripe el
+  // estado real de la suscripción, así que no cierra por un fallo transitorio de cobro.
+  ajustarWebPublica(db, lic, false, 'invoice_failed');
   console.log(`[webhook-stripe/invoice_failed] Licencia ${lic.id} -> expired (sub status=${sub.status})`);
 }
 
