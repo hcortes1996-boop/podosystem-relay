@@ -45,17 +45,21 @@ function genLicenseKey() {
   return [0, 4, 8, 12, 16].map((s, i, a) => bytes.slice(s, a[i + 1] || bytes.length)).join('-');
 }
 
-// ⚠️ `clinicaId` entra aquí el 18-09-2026, y no es decorativo: sin él,
-// `ajustarWebPublica()` haría `WHERE id = undefined` y **no apagaría nada**, dejando la web de
-// reservas abierta mientras el log decía que todo fue bien.
+// ⚠️ `clinicaId`, `clienteEmail` y `clienteNombre` entran aquí el 18-09-2026, y ninguno es
+// decorativo. Sin `clinicaId`, `ajustarWebPublica()` haría `WHERE id = undefined` y no apagaría
+// nada, dejando la web abierta mientras el log decía que todo fue bien. Sin los otros dos, el
+// aviso al titular se enviaría a `undefined`: tampoco daría error, simplemente no llegaría.
+// Dos veces el mismo fallo en el mismo sitio — lo que hay que mirar al añadir un campo no es si
+// el código compila, es de dónde sale el dato.
 function findLicenciaByStripe(db, suscripcionId, email) {
+  const CAMPOS = 'id, estado, clinicaId, clienteEmail, clienteNombre';
   if (suscripcionId) {
-    const l = db.prepare('SELECT id, estado, clinicaId FROM licencias WHERE suscripcionId = ?').get(String(suscripcionId));
+    const l = db.prepare(`SELECT ${CAMPOS} FROM licencias WHERE suscripcionId = ?`).get(String(suscripcionId));
     if (l) return l;
   }
   if (email) {
     return db.prepare(
-      "SELECT id, estado, clinicaId FROM licencias WHERE clienteEmail = ? AND fuente = 'stripe' ORDER BY createdAt DESC LIMIT 1"
+      `SELECT ${CAMPOS} FROM licencias WHERE clienteEmail = ? AND fuente = 'stripe' ORDER BY createdAt DESC LIMIT 1`
     ).get(email);
   }
   return null;
@@ -86,12 +90,95 @@ function ajustarWebPublica(db, lic, activa, etiqueta) {
     console.warn(`[webhook-stripe/${etiqueta}] Licencia ${lic?.id} sin clinicaId — no hay web que ${accion}`);
     return;
   }
-  const r = db.prepare('UPDATE clinicas SET activa = ? WHERE id = ?').run(activa ? 1 : 0, lic.clinicaId);
-  if (r.changes === 0) {
+  // ⚠️ Se LEE antes de escribir, y no se usa `changes`. En SQLite, `changes` cuenta las filas que
+  // cumplieron el WHERE, no las que cambiaron de valor: poner un 1 donde ya había un 1 cuenta
+  // igual. Y como `invoice.payment_succeeded` llega **cada mes** al cobrar la cuota, avisar sin
+  // comparar significaría mandar a cada cliente un correo mensual diciéndole que su web está
+  // abierta. Spam nuestro, y del tonto.
+  const antes = db.prepare('SELECT activa FROM clinicas WHERE id = ?').get(lic.clinicaId);
+  if (!antes) {
+    // El 27-08-2026, 4 de 5 licencias de producción apuntaban a clínicas inexistentes.
     console.warn(`[webhook-stripe/${etiqueta}] clinicaId=${lic.clinicaId} no existe — NO se ha podido ${accion} ninguna web`);
     return;
   }
+  const destino = activa ? 1 : 0;
+  if (antes.activa === destino) {
+    console.log(`[webhook-stripe/${etiqueta}] Web pública de ${lic.clinicaId} ya estaba ${activa ? 'abierta' : 'cerrada'} — sin cambios`);
+    return;
+  }
+  db.prepare('UPDATE clinicas SET activa = ? WHERE id = ?').run(destino, lic.clinicaId);
   console.log(`[webhook-stripe/${etiqueta}] Web pública de ${lic.clinicaId} -> ${activa ? 'ABIERTA' : 'CERRADA'}`);
+  avisarCambioWebPublica(lic, activa, etiqueta);
+}
+
+/**
+ * ─── Y se le dice al titular ─────────────────────────────────────────────────
+ *
+ * Decidido con Francisco el 18-09-2026: *«debemos de informar»*.
+ *
+ * Su primer razonamiento era que el cliente ya lo sabe porque se le ha avisado. Al medirlo,
+ * **no era cierto por ninguna vía**: ni salía un solo correo nuestro al cancelar o al fallar el
+ * cobro —`sendMail` aparecía una vez en todo el fichero, en el alta—, ni el contrato mencionaba
+ * las citas online al cancelar. Las dos cosas se arreglan a la vez.
+ *
+ * ⚠️ **A quien de verdad protege esto es al de la tarjeta caducada.** Ese no ha cancelado nada,
+ * no ha decidido nada y no ha avisado a nadie: se le corta sin enterarse, y lo descubre cuando
+ * deje de venir gente. El que se va a propósito ya lo tenía calculado.
+ *
+ * ⚠️ **Fire-and-forget con `catch`, nunca `await`.** Igual que el correo de bienvenida: la web ya
+ * está cerrada y eso es lo que importaba. Si esto lanzara, el webhook devolvería 500, Stripe
+ * reintentaría, y volveríamos a procesar el evento entero por no haber podido mandar un correo.
+ */
+function avisarCambioWebPublica(lic, activa, etiqueta) {
+  if (!lic.clienteEmail) {
+    console.warn(`[webhook-stripe/${etiqueta}] Licencia ${lic.id} sin clienteEmail — no se puede avisar del cambio`);
+    return;
+  }
+  const { sendMail } = require('../email');
+  sendMail({
+    to:      lic.clienteEmail,
+    subject: activa
+      ? 'Tus reservas online vuelven a estar activas'
+      : 'Se han detenido las reservas online de tu clínica',
+    html:    buildEmailWebPublica({ nombre: lic.clienteNombre, activa }),
+  }).then(() => console.log(`[webhook-stripe/${etiqueta}] Aviso de web ${activa ? 'abierta' : 'cerrada'} enviado a ${lic.clienteEmail}`))
+    .catch(err => console.error(`[webhook-stripe/${etiqueta}] Aviso FALLO (la web ya está ${activa ? 'abierta' : 'cerrada'}): ${err.message}`));
+}
+
+function buildEmailWebPublica({ nombre, activa }) {
+  const cuerpo = activa ? `
+    <p style="margin:0 0 20px;color:#1a2a3a;line-height:1.6">Tu suscripción vuelve a estar al corriente, así que <strong>tu página de reservas online ya admite citas otra vez</strong>. No tienes que hacer nada: se ha reactivado sola.</p>
+    <div style="margin:0 0 24px;padding:18px;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:8px">
+      <p style="margin:0;font-size:.92rem;color:#065f46;line-height:1.6">Tus pacientes pueden volver a reservar desde tu web con normalidad.</p>
+    </div>` : `
+    <p style="margin:0 0 20px;color:#1a2a3a;line-height:1.6">Tu suscripción a PodoSystem ha dejado de estar activa y, con ella, <strong>se han detenido las reservas online de tu clínica</strong>: tu página pública ya no admite citas nuevas.</p>
+    <div style="margin:0 0 20px;padding:18px;background:#fef3c7;border:1px solid #fde68a;border-radius:8px">
+      <p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#92400e">Qué sigue funcionando</p>
+      <ul style="margin:0;padding-left:20px;font-size:.9rem;color:#78350f;line-height:1.8">
+        <li>Las citas <strong>ya reservadas se conservan</strong>: no se ha borrado ninguna.</li>
+        <li>Los pacientes que recibieron su enlace <strong>pueden seguir anulando</strong> su cita.</li>
+        <li>Tus datos siguen en tu ordenador, y puedes exportarlos cuando quieras.</li>
+      </ul>
+    </div>
+    <div style="margin:0 0 24px;padding:18px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+      <p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#1e40af">Si ha sido un problema con el cobro</p>
+      <p style="margin:0;font-size:.92rem;color:#1e3a8a;line-height:1.6">Suele ser una tarjeta caducada. Actualízala y <strong>las reservas se reactivan solas</strong>, sin que tengas que pedirnos nada.</p>
+    </div>
+    <p style="margin:0 0 20px;font-size:.92rem;color:#5a7080;line-height:1.6">Si tenías pacientes acostumbrados a pedir cita por internet, conviene que se lo hagas saber por el canal que uses habitualmente.</p>`;
+
+  return `
+<div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff">
+  <div style="background:#0f2137;padding:28px 40px">
+    <p style="margin:0;font-size:20px;font-weight:800;color:#fff">Podo<span style="color:#2ecc9a">System</span></p>
+    <p style="margin:6px 0 0;font-size:13px;color:rgba(255,255,255,.5)">${activa ? 'Reservas online reactivadas' : 'Reservas online detenidas'}</p>
+  </div>
+  <div style="padding:32px 40px">
+    <p style="margin:0 0 16px;color:#1a2a3a">Hola${nombre ? ' <strong>' + esc(nombre) + '</strong>' : ''},</p>
+    ${cuerpo}
+    <p style="margin:24px 0 0;font-size:.85rem;color:#aaa">¿Dudas? Escríbenos a <a href="mailto:soporte@podosystem.es" style="color:#2ecc9a">soporte@podosystem.es</a></p>
+    <p style="margin:16px 0 0;font-size:.85rem;color:#5a7080">Un saludo,<br>Francisco Román García · PodoSystem</p>
+  </div>
+</div>`;
 }
 
 // El id de suscripcion en un invoice cambio de sitio en la API 2026-06-24.dahlia:

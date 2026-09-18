@@ -379,6 +379,63 @@ function check(name, cond, info) {
       check('T19 y la licencia se marca expired igual', l?.estado === 'expired', `got ${l?.estado}`);
     }
 
+    // ── Y se le dice al titular ──────────────────────────────────────────────
+    //
+    // La premisa era «ya lo sabe, se le ha avisado». Al medirlo NO era cierto: no salía ningún
+    // correo nuestro al cancelar ni al fallar el cobro. A quien de verdad protege esto es al de
+    // la tarjeta caducada, que no ha cancelado nada y se entera cuando deja de venir gente.
+
+    // T20 — al cerrar se avisa
+    {
+      await call(server, makeCheckoutEvent('evt_020a', 'cs_020', 'sub_020', 'cliente20@test.es', 'clinica'));
+      mailCalls.length = 0;
+      await call(server, makeSubDeletedEvent('evt_020b', 'sub_020'));
+      const aviso = mailCalls.find(m => m.to === 'cliente20@test.es');
+      check('T20 se avisa al titular de que se cierran las reservas', !!aviso, `correos=${mailCalls.length}`);
+      check('T20 el asunto lo dice sin rodeos', /detenido las reservas online/i.test(aviso?.subject || ''), `got ${aviso?.subject}`);
+      check('T20 explica que las citas ya reservadas se conservan', /se conservan/i.test(aviso?.html || ''));
+      check('T20 y que se reactiva sola al ponerse al corriente', /se reactivan solas/i.test(aviso?.html || ''));
+    }
+
+    // T21 — ⚠️ EL ANTI-SPAM, y es la comprobación que más vale de este bloque.
+    // `invoice.payment_succeeded` llega CADA MES al cobrar la cuota. Sin comparar el estado
+    // anterior, cada cliente recibiría un correo mensual diciéndole que su web sigue abierta.
+    {
+      mailCalls.length = 0;
+      await call(server, makeInvoiceEvent('evt_021', 'invoice.payment_succeeded', 'sub_017', 'cliente17@test.es'));
+      check('T21 cobrar con la web YA abierta no manda NINGÚN correo', mailCalls.length === 0, `got ${mailCalls.length}`);
+    }
+
+    // T22 — pero reabrir tras un cierre sí avisa: ahí sí ha cambiado algo
+    {
+      mailCalls.length = 0;
+      await call(server, makeInvoiceEvent('evt_022', 'invoice.payment_succeeded', 'sub_020', 'cliente20@test.es'));
+      const aviso = mailCalls.find(m => m.to === 'cliente20@test.es');
+      check('T22 reabrir tras un cierre SÍ avisa', !!aviso, `correos=${mailCalls.length}`);
+      check('T22 con el asunto de reactivación', /vuelven a estar activas/i.test(aviso?.subject || ''), `got ${aviso?.subject}`);
+    }
+
+    // T23 — y cerrar lo que ya estaba cerrado tampoco repite el aviso
+    {
+      await call(server, makeSubDeletedEvent('evt_023a', 'sub_020'));   // cierra de verdad
+      mailCalls.length = 0;
+      await call(server, makeSubDeletedEvent('evt_023b', 'sub_020'));   // ya cerrada
+      check('T23 cerrar lo ya cerrado no avisa otra vez', mailCalls.length === 0, `got ${mailCalls.length}`);
+    }
+
+    // T24 — si el aviso falla, la puerta se cierra igual y Stripe recibe 200.
+    // Si esto devolviera 500, Stripe reintentaría el webhook por no haber podido mandar un correo.
+    {
+      await call(server, makeCheckoutEvent('evt_024a', 'cs_024', 'sub_024', 'cliente24@test.es', 'basico'));
+      emailMod.sendMail = async () => { throw new Error('Resend caido simulado'); };
+      const r = await call(server, makeSubDeletedEvent('evt_024b', 'sub_024'));
+      check('T24 si el aviso falla, el webhook responde 200 igual', r.status === 200, `got ${r.status}`);
+      const lic = db.prepare("SELECT clinicaId FROM licencias WHERE suscripcionId = 'sub_024'").get();
+      const row = db.prepare('SELECT activa FROM clinicas WHERE id = ?').get(lic?.clinicaId);
+      check('T24 y la web queda cerrada igual', row?.activa === 0, `got ${row?.activa}`);
+      emailMod.sendMail = async (args) => { mailCalls.push(args); }; // restaurar mock
+    }
+
   } finally {
     // NOTA: no llamamos server.close() ni db.close() — libuv Windows lanza
     // assertion en cleanup. process.exit es suficiente.
