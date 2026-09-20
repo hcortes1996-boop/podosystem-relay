@@ -59,6 +59,12 @@ db.prepare(`INSERT INTO clinicas (id, nombre, apiKey, telefono, ciudad, direccio
   .run('trialABC123', 'CLINICA DE PRUEBA NORTE', 'k1', '675565440', 'DOS HERMANAS', 'Calle Falsa 1');
 db.prepare(`INSERT INTO clinicas (id, nombre, apiKey, activa) VALUES (?,?,?,0)`)
   .run('canceladaXY', 'CLINICA CANCELADA', 'k2');
+// ⚠️ Un identificador con los caracteres RAROS del generador. `genId` es
+// randomBytes(n).toString('base64url'), así que un clinicaId real puede llevar `-` y `_` —
+// comprobado: `lZi_BtB0gE`. Los ejemplos de arriba no los llevan, así que ese caso no se
+// estaba probando, y es el que tendrán de verdad las clínicas creadas por un trial.
+db.prepare(`INSERT INTO clinicas (id, nombre, apiKey, activa) VALUES (?,?,?,1)`)
+  .run('lZi_BtB0-E', 'CLINICA CON GUIONES', 'k3');
 
 /* ── El servidor, con la ruta de verdad ────────────────────────────────────── */
 const app = express();
@@ -111,6 +117,15 @@ const pedir = async (ruta) => {
     const r = await pedir(ruta);
     ok(r.status === 404, `${ruta} NO se sirve`,
       'la plantilla cruda lleva los marcadores sin sustituir a la vista');
+  }
+
+  console.log('\n── Un clinicaId con los caracteres del generador de verdad ──');
+  {
+    const raro = await pedir('/cita/lZi_BtB0-E');
+    ok(raro.status === 200,
+      'un clinicaId con `-` y `_` también se sirve',
+      'genId usa base64url: los identificadores reales los llevan, y los de estas pruebas no');
+    ok(raro.text.includes('CLINICA CON GUIONES'), 'y sale su nombre');
   }
 
   console.log('\n── Clínica inexistente y clínica cancelada ──');

@@ -198,6 +198,35 @@ function initDB() {
     CREATE INDEX IF NOT EXISTS idx_reasignaciones_lic
       ON reasignaciones(licenciaId, creadoEn DESC);
 
+    -- Verificación del correo de un trial al activar su web de citas (bloque 2 del
+    -- estudio, decisión ③). Misma forma que la tabla reasignaciones a propósito: es la
+    -- misma mecánica de código de seis dígitos, y las dos comparten el módulo
+    -- src/lib/codigo-verificacion.js.
+    --
+    -- ⚠️ SIN ACENTOS GRAVES EN ESTE COMENTARIO. Todo el esquema vive dentro de un
+    -- db.exec(...) con plantilla de texto, así que un acento grave aquí la cierra y el
+    -- fichero deja de compilar: "SyntaxError: missing ) after argument list". Pasó al
+    -- escribir este mismo bloque el 20-09-2026.
+    --
+    -- ⚠️ La verificación NO va al empezar el trial. Si al abrir el programa por primera vez
+    -- hubiera que ir al correo a por un código, se perdería gente en el paso cero. Va al
+    -- activar Citas Web, que es la función que se quiere enseñar: quien la pide está
+    -- interesado de verdad, y ahí teclear seis dígitos no echa a nadie.
+    CREATE TABLE IF NOT EXISTS trial_verificaciones (
+      id            TEXT PRIMARY KEY,
+      trialId       TEXT NOT NULL,
+      hardwareId    TEXT NOT NULL,
+      codigoHash    TEXT NOT NULL,
+      creadoEn      TEXT NOT NULL,
+      expiraEn      TEXT NOT NULL,
+      intentos      INTEGER NOT NULL DEFAULT 0,
+      usadoEn       TEXT,
+      ip            TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_trial_verif
+      ON trial_verificaciones(trialId, creadoEn DESC);
+
     CREATE TABLE IF NOT EXISTS trial_instalaciones (
       hardwareId    TEXT PRIMARY KEY,
       inicio        TEXT NOT NULL,
@@ -338,6 +367,21 @@ function initDB() {
   try { db.exec('ALTER TABLE clinicas ADD COLUMN direccion TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE clinicas ADD COLUMN email TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE clinicas ADD COLUMN profesional TEXT'); } catch (_) {}
+
+  // ── Bloque 2 del trial: correo verificado y clínica creada sola ─────────────
+  //
+  // `trials.clinicaId` es además el CERROJO DE IDEMPOTENCIA: si ya tiene valor, verificar otra
+  // vez devuelve la clínica que hay en lugar de crear una segunda. Lo pide el plan de pruebas
+  // del estudio con estas palabras: «que dos verificaciones del mismo correo no creen dos
+  // clínicas».
+  try { db.exec('ALTER TABLE trials ADD COLUMN email_verificado_en TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE trials ADD COLUMN clinicaId TEXT'); } catch (_) {}
+
+  // De dónde salió cada clínica. La decisión ③ pedía que el alta automática fuera «visible en
+  // el panel como nueva, para llevar control y poder borrar clientes falsos»: sin esta columna
+  // una clínica creada por un trial sería indistinguible de una de pago, y no habría forma de
+  // limpiar las inventadas. Por defecto 'manual' para no reescribir las que ya existen.
+  try { db.exec("ALTER TABLE clinicas ADD COLUMN fuente TEXT DEFAULT 'manual'"); } catch (_) {}
 
   // v2.2+ — Multi-podólogo (Plan Red web)
   try { db.exec('ALTER TABLE reservas ADD COLUMN podologoId TEXT'); } catch (_) {}

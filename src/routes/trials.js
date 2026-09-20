@@ -30,9 +30,13 @@
 
 const express = require('express');
 const rateLimit = require('express-rate-limit');
-const { genId } = require('../db');
+const { genId, genApiKey } = require('../db');
 const { ultimaDescarga } = require('../lib/descarga');
 const { firmar } = require('../firma');
+const { sendMail } = require('../email');
+const {
+  VIDA_CODIGO_MS, MAX_INTENTOS, generarCodigo, hashCodigo, pistaEmail, comprobarCodigo,
+} = require('../lib/codigo-verificacion');
 
 const router = express.Router();
 
@@ -225,6 +229,193 @@ router.get('/trial/descarga', async (_req, res) => {
   const { url, version, error } = await ultimaDescarga();
   if (!url) return res.status(503).json({ ok: false, error: error || 'no disponible' });
   res.json({ ok: true, descargaUrl: url, version });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * ACTIVAR LA WEB DE CITAS DESDE UN TRIAL — bloque 2 del estudio, decisión ③
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Hasta hoy, un trial que quisiera Citas Web tenía que rellenar un formulario, escribir a
+ * `info@` y esperar a que alguien le creara la clínica a mano. Nadie hace eso durante una
+ * prueba: se va. Y sin `clinicaId` no puede llegar a `/cita/<id>`, que es lo que se desplegó
+ * en el bloque 3 — por eso el estudio avisa de que «sin esto, las decisiones ② y ⑤ dan igual».
+ *
+ * ── Por qué la verificación va AQUÍ y no al empezar el trial ────────────────
+ *
+ * Si al abrir el programa por primera vez hubiera que ir al correo a por un código, se pierde
+ * gente en el paso cero. Aquí no: quien pulsa «Activar mi web de citas» ya está interesado de
+ * verdad, y teclear seis dígitos no echa a nadie. A cambio se consigue:
+ *
+ *   · un correo VERIFICADO justo de los interesados de verdad, que comercialmente vale mucho
+ *     más que una lista de direcciones sin comprobar;
+ *   · que no se creen clínicas de gente que no existe, que era el temor de la decisión ③;
+ *   · y atar la huella del equipo a la fila de `trials` — hoy `trial_instalaciones.trialId` se
+ *     adivina por IP, y el propio código avisa de que es «una ayuda para el panel, NO una
+ *     identificación».
+ *
+ * ⚠️ **Lo que esto NO es:** una identificación fuerte. Cualquiera puede usar un correo
+ * desechable. Filtra al que se inventa la dirección, no al que se empeña — y para lo que se
+ * quiere (control en el panel y no crear clínicas fantasma) es suficiente.
+ *
+ * ⚠️ **No es un servidor de correo abierto.** Igual que en `recuperacion.js`: la plantilla está
+ * fija aquí y de fuera solo se acepta un correo que YA esté registrado como trial y un código
+ * de seis dígitos. No hay manera de mandar texto arbitrario a un tercero.
+ */
+
+/** El correo del código. Plantilla fija: lo único variable son el código y el nombre. */
+function plantillaCodigoWeb({ codigo, nombre }) {
+  const esc = (s) => String(s || '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+  return `<div style="font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:520px;margin:0 auto;color:#1f2937">
+    <h2 style="color:#1E3A5F;margin:0 0 4px">Tu código para activar la web de citas</h2>
+    <p>Hola${nombre ? ' ' + esc(nombre) : ''},</p>
+    <p>Escribe este código en PodoSystem para activar tu web de citas:</p>
+    <p style="font-size:2rem;font-weight:700;letter-spacing:.35rem;color:#1E3A5F;margin:18px 0">${esc(codigo)}</p>
+    <p style="color:#6b7280;font-size:.9rem">Caduca en ${VIDA_CODIGO_MS / 60000} minutos y solo se puede usar una vez.
+       Si no lo has pedido tú, ignora este mensaje: sin el código no se activa nada.</p>
+  </div>`;
+}
+
+/**
+ * Paso 1 — pedir el código.
+ *
+ * Solo se manda a un correo que YA figura en `trials`: no se puede usar para escribir a nadie
+ * que no se haya descargado la prueba.
+ */
+router.post('/trial/web/solicitar', limite, async (req, res) => {
+  const hardwareId = limpiar(req.body?.hardwareId, 64).toLowerCase();
+  const email      = limpiar(req.body?.email, 160).toLowerCase();
+
+  if (!ES_HUELLA.test(hardwareId)) return res.status(400).json({ ok: false, error: 'huella no válida' });
+  if (!ES_EMAIL.test(email))       return res.status(400).json({ ok: false, error: 'El correo no es válido' });
+
+  const trial = req.db.prepare('SELECT id, nombre, email, clinicaId FROM trials WHERE email = ?').get(email);
+  if (!trial) {
+    // Mensaje honesto: es el correo con el que se descargó la prueba, y sin él no hay nada que
+    // verificar. No se filtra nada que no supiera ya quien lo escribe.
+    return res.status(404).json({
+      ok: false,
+      error: 'Ese correo no consta como descarga de la prueba. Usa el mismo con el que te la descargaste.',
+    });
+  }
+
+  // Si ya tiene clínica, no hace falta código: se devuelve lo que hay (ver la idempotencia
+  // del paso 2). Pedir otro código para algo ya hecho solo confunde.
+  if (trial.clinicaId) {
+    const cl = req.db.prepare('SELECT id, apiKey FROM clinicas WHERE id = ?').get(trial.clinicaId);
+    if (cl) return res.json({ ok: true, yaActivada: true, clinicaId: cl.id, apiKey: cl.apiKey });
+  }
+
+  const codigo = generarCodigo();
+  const ahora  = new Date();
+  const id     = genId(12);
+
+  // Cada solicitud invalida la anterior: si alguien pide dos, solo vale la última.
+  req.db.prepare('DELETE FROM trial_verificaciones WHERE trialId = ? AND usadoEn IS NULL').run(trial.id);
+  req.db.prepare(`INSERT INTO trial_verificaciones
+      (id, trialId, hardwareId, codigoHash, creadoEn, expiraEn, ip) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, trial.id, hardwareId, hashCodigo(id, codigo), ahora.toISOString(),
+         new Date(ahora.getTime() + VIDA_CODIGO_MS).toISOString(),
+         (req.headers['x-forwarded-for'] || req.ip || '').toString().split(',')[0].trim() || null);
+
+  try {
+    await sendMail({
+      to: trial.email,
+      subject: 'Tu código para activar la web de citas de PodoSystem',
+      html: plantillaCodigoWeb({ codigo, nombre: trial.nombre }),
+    });
+  } catch (e) {
+    console.error('[trial/web] fallo al enviar:', e.message);
+    return res.status(502).json({ ok: false, error: 'No se pudo enviar el correo: ' + e.message });
+  }
+
+  // Ni el código ni el correo completo entran en el registro.
+  console.log('[trial/web] codigo enviado · trial ' + trial.id);
+  return res.json({ ok: true, enviadoA: pistaEmail(trial.email), validoMinutos: VIDA_CODIGO_MS / 60000 });
+});
+
+/**
+ * Paso 2 — confirmar el código y crear la clínica.
+ *
+ * Aquí es donde ocurre todo lo que el estudio pedía, y en este orden:
+ *   1. se comprueba el código (caducado / gastado / intentos / incorrecto),
+ *   2. se marca el correo verificado,
+ *   3. se ATA la huella a la fila del trial — dejando de adivinarla por IP,
+ *   4. y solo entonces se crea la clínica.
+ *
+ * ⚠️ **Idempotente a propósito.** El plan de pruebas lo pide con estas palabras: «que dos
+ * verificaciones del mismo correo no creen dos clínicas». El cerrojo es `trials.clinicaId`.
+ */
+router.post('/trial/web/confirmar', limite, (req, res) => {
+  const hardwareId = limpiar(req.body?.hardwareId, 64).toLowerCase();
+  const email      = limpiar(req.body?.email, 160).toLowerCase();
+  const codigo     = limpiar(req.body?.codigo, 6);
+  const nombreWeb  = limpiar(req.body?.nombreClinica, 160);
+
+  if (!ES_HUELLA.test(hardwareId)) return res.status(400).json({ ok: false, error: 'huella no válida' });
+  if (!ES_EMAIL.test(email))       return res.status(400).json({ ok: false, error: 'El correo no es válido' });
+  if (!/^[0-9]{6}$/.test(codigo))  return res.status(400).json({ ok: false, error: 'El código es de 6 dígitos' });
+
+  const trial = req.db.prepare('SELECT id, nombre, email, clinica, clinicaId FROM trials WHERE email = ?').get(email);
+  if (!trial) return res.status(404).json({ ok: false, error: 'Ese correo no consta como descarga de la prueba' });
+
+  // El cerrojo de idempotencia, ANTES de tocar el código: si ya hay clínica, se devuelve.
+  if (trial.clinicaId) {
+    const cl = req.db.prepare('SELECT id, apiKey FROM clinicas WHERE id = ?').get(trial.clinicaId);
+    if (cl) return res.json({ ok: true, yaActivada: true, clinicaId: cl.id, apiKey: cl.apiKey });
+  }
+
+  const fila = req.db.prepare(
+    'SELECT * FROM trial_verificaciones WHERE trialId = ? ORDER BY creadoEn DESC LIMIT 1'
+  ).get(trial.id);
+
+  const veredicto = comprobarCodigo(fila, codigo);
+  if (!veredicto.ok) {
+    // Solo se gasta intento cuando el código existía y estaba vivo: un código caducado no
+    // debe consumir los cinco de quien pida otro.
+    if (veredicto.fallo) {
+      req.db.prepare('UPDATE trial_verificaciones SET intentos = intentos + 1 WHERE id = ?').run(fila.id);
+    }
+    return res.status(veredicto.estado).json({
+      ok: false,
+      error: veredicto.motivo,
+      ...(veredicto.intentosRestantes !== undefined ? { intentosRestantes: veredicto.intentosRestantes } : {}),
+    });
+  }
+
+  const ahora = new Date().toISOString();
+  const nombreClinica = nombreWeb || trial.clinica || trial.nombre;
+  const clinicaId = genId(10);
+  const apiKey    = genApiKey();
+
+  // Todo junto o nada: si fallara a medias quedaría un trial verificado sin clínica, o una
+  // clínica que nadie sabe de quién es.
+  const alta = req.db.transaction(() => {
+    req.db.prepare("INSERT INTO clinicas (id, nombre, apiKey, fuente) VALUES (?, ?, ?, 'trial')")
+      .run(clinicaId, nombreClinica, apiKey);
+    req.db.prepare('UPDATE trials SET email_verificado_en = ?, clinicaId = ? WHERE id = ?')
+      .run(ahora, clinicaId, trial.id);
+    req.db.prepare('UPDATE trial_verificaciones SET usadoEn = ? WHERE id = ?').run(ahora, fila.id);
+    // La huella deja de adivinarse por IP: a partir de aquí se sabe de quién es el equipo.
+    req.db.prepare('UPDATE trial_instalaciones SET trialId = ? WHERE hardwareId = ?')
+      .run(trial.id, hardwareId);
+  });
+
+  try {
+    alta();
+  } catch (e) {
+    console.error('[trial/web] no se pudo crear la clinica:', e.message);
+    return res.status(500).json({ ok: false, error: 'No se pudo activar la web de citas' });
+  }
+
+  console.log('[trial/web] clinica creada ' + clinicaId + ' para el trial ' + trial.id);
+  return res.json({
+    ok: true,
+    clinicaId,
+    apiKey,
+    nombre: nombreClinica,
+    // La dirección que el PC enseñará con el QR (bloque 4).
+    webUrl: (process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app') + '/cita/' + clinicaId,
+  });
 });
 
 module.exports = router;

@@ -37,6 +37,13 @@ const rateLimit = require('express-rate-limit');
 const crypto    = require('crypto');
 const { sendMail } = require('../email');
 const { genId } = require('../db');
+// La mecánica del código de seis dígitos vive en un módulo común desde el 20-09-2026: la
+// necesita también el alta de la web de citas de un trial. Se extrajo en vez de copiarse
+// porque en este repositorio ya se pagó una duplicación así (`construirVars`), y aquí lo
+// duplicado sería la parte que decide si un código vale o no.
+const {
+  VIDA_CODIGO_MS, MAX_INTENTOS, hashCodigo, pistaEmail,
+} = require('../lib/codigo-verificacion');
 
 const router = express.Router();
 
@@ -311,21 +318,10 @@ function plantillaAvisoMovida({ nombre, cuando }) {
 }
 
 const ES_LICENCIA = /^[A-Z0-9-]{8,64}$/i;
-const VIDA_CODIGO_MS = 15 * 60 * 1000;
-const MAX_INTENTOS = 5;
-
-function hashCodigo(id, codigo) {
-  return crypto.createHash('sha256').update(id + ':' + codigo).digest('hex');
-}
-
-/** francisco@ejemplo.com → f···o@ejemplo.com. Confirma a dónde fue sin revelarlo. */
-function pistaEmail(email) {
-  const partes = String(email).split('@');
-  if (partes.length !== 2) return '···';
-  const u = partes[0];
-  const visible = u.length <= 2 ? u[0] : u[0] + '···' + u[u.length - 1];
-  return visible + '@' + partes[1];
-}
+// VIDA_CODIGO_MS, MAX_INTENTOS, hashCodigo y pistaEmail estaban definidos aquí. Desde el
+// 20-09-2026 vienen de `../lib/codigo-verificacion` (ver el require de arriba), sin cambiar
+// ni una coma: `hashCodigo` se comprobó idéntico al original sobre 500 pares id/código antes
+// de mover nada, porque alterarlo habría invalidado los códigos que estuvieran en vuelo.
 
 const limiteReasignIP = enTest ? sinLimite : rateLimit({
   windowMs: 60 * 60 * 1000,
