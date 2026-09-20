@@ -51,6 +51,7 @@ db.exec(`
   CREATE TABLE clinicas (
     id TEXT PRIMARY KEY, nombre TEXT NOT NULL, apiKey TEXT,
     telefono TEXT, ciudad TEXT, direccion TEXT,
+    webUrl TEXT,
     activa INTEGER NOT NULL DEFAULT 1
   );
 `);
@@ -65,6 +66,10 @@ db.prepare(`INSERT INTO clinicas (id, nombre, apiKey, activa) VALUES (?,?,?,0)`)
 // estaba probando, y es el que tendrán de verdad las clínicas creadas por un trial.
 db.prepare(`INSERT INTO clinicas (id, nombre, apiKey, activa) VALUES (?,?,?,1)`)
   .run('lZi_BtB0-E', 'CLINICA CON GUIONES', 'k3');
+// Una clínica DE PAGO: tiene su sitio de Netlify con su dominio. Las de arriba no lo tienen, así
+// que sin esta fila no se podía distinguir «el QR existe» de «el QR apunta donde debe».
+db.prepare(`INSERT INTO clinicas (id, nombre, apiKey, webUrl, activa) VALUES (?,?,?,?,1)`)
+  .run('pagaFR0001', 'CLINICA CON DOMINIO PROPIO', 'k4', 'https://podologofranciscoroman.com/cita.html');
 
 /* ── El servidor, con la ruta de verdad ────────────────────────────────────── */
 const app = express();
@@ -145,6 +150,36 @@ const pedir = async (ruta) => {
 
     const nada = await pedir('/cita-qr/noexisteXXXX');
     ok(nada.status === 404, 'y una que no existe tampoco');
+
+    // ── ¿A DÓNDE apunta? ─────────────────────────────────────────────────────
+    //
+    // Lo de arriba prueba que HAY un QR. Esto prueba que lleva al sitio correcto, que es donde
+    // estaba el fallo: la ruta codificaba siempre la página del relay. No se puede leer la URL
+    // de dentro de un SVG sin meter un descodificador de QR, así que se prueba la función que
+    // la elige, expuesta por `__test__`.
+    //
+    // Y por qué importa: la página del relay lleva pegado el cartel de `marcarComoPrueba()`. Un
+    // cliente de pago cuyo QR apuntara ahí les estaría diciendo a SUS pacientes que su clínica
+    // está en período de prueba.
+    const { __test__: qrT } = require('../src/routes/citas-web');
+    const BASE = 'https://relay.ejemplo';
+
+    ok(qrT.urlDeLaClinica({ id: 'trialABC123', webUrl: null }, BASE) === `${BASE}/cita/trialABC123`,
+      'un trial (sin webUrl) apunta a la página que sirve el relay',
+      'es su web de verdad: trials.js crea la clínica sin webUrl a propósito');
+
+    ok(qrT.urlDeLaClinica({ id: 'pagaFR0001', webUrl: 'https://podologofranciscoroman.com/cita.html' }, BASE)
+         === 'https://podologofranciscoroman.com/cita.html',
+      'una clínica de pago apunta a SU dominio, no al relay',
+      'apuntarla al relay enseñaría a sus pacientes el cartel de «período de prueba»');
+
+    ok(qrT.urlDeLaClinica({ id: 'x1', webUrl: '   ' }, BASE) === `${BASE}/cita/x1`,
+      'un webUrl en blanco cae al respaldo',
+      'el panel de administración deja borrarlo dejando el campo vacío: editarWebUrl');
+
+    const pago = await pedir('/cita-qr/pagaFR0001');
+    ok(pago.status === 200 && pago.text.startsWith('<svg'),
+      'y la clínica con dominio propio sigue teniendo su QR', `status ${pago.status}`);
   }
 
   console.log('\n── Clínica inexistente y clínica cancelada ──');

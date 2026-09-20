@@ -152,16 +152,42 @@ router.use('/cita-assets', express.static(TEMPLATE_DIR, {
 //    habría sido más corto y habría dejado un servicio alojado en nuestro dominio capaz de
 //    fabricar códigos que apuntan a donde quiera cualquiera. Aquí solo se puede codificar la
 //    dirección de una clínica que existe y está activa: no hay nada que inyectar.
+/**
+ * ¿Qué dirección codifica el QR de esta clínica?
+ *
+ * ⚠️ NO es siempre la página del relay, y confundirlo tiene una consecuencia fea. Esta ruta
+ * nació para el trial, donde la web ES la del relay. Pero el QR se enseña también en el panel,
+ * y un cliente de pago tiene su sitio de Netlify con su dominio: apuntarle al relay mandaría a
+ * SUS pacientes a una página que lleva pegado el cartel de `marcarComoPrueba()` —«Esta es tu web
+ * de citas en el período de prueba»— y un `noindex`. Es decir, le diría a sus pacientes que su
+ * clínica está de prueba.
+ *
+ * Por eso manda `clinicas.webUrl` cuando lo hay. Un trial no lo tiene: `trials.js` da de alta la
+ * clínica con `(id, nombre, apiKey, fuente)` y calcula la dirección al vuelo sin guardarla, así
+ * que el respaldo es el camino normal de todas las pruebas, no un caso raro.
+ *
+ * Y se deja vacío a propósito cuando está en blanco: el panel de administración permite borrar
+ * la URL dejando el campo vacío (`editarWebUrl`), y eso tiene que volver al respaldo, no producir
+ * un QR que apunte a la cadena vacía.
+ *
+ * Sigue sin ser un generador abierto: la dirección sale de una fila de la base, nunca de la
+ * petición. Ver la decisión 2 del bloque de arriba.
+ */
+function urlDeLaClinica(clinica, base) {
+  const propia = String(clinica?.webUrl || '').trim();
+  return propia || `${base}/cita/${clinica.id}`;
+}
+
 router.get('/cita-qr/:clinicaId', async (req, res) => {
   const clinica = req.db
-    .prepare('SELECT id FROM clinicas WHERE id = ? AND activa = 1')
+    .prepare('SELECT id, webUrl FROM clinicas WHERE id = ? AND activa = 1')
     .get(req.params.clinicaId);
 
   if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
 
   const base = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
   try {
-    const svg = await QRCode.toString(`${base}/cita/${clinica.id}`, {
+    const svg = await QRCode.toString(urlDeLaClinica(clinica, base), {
       type: 'svg', margin: 1, width: 320, errorCorrectionLevel: 'M',
     });
     // Cacheable: para una misma clínica el QR no cambia nunca.
@@ -216,3 +242,6 @@ router.get('/cita/:clinicaId', (req, res) => {
 });
 
 module.exports = router;
+// La elección de URL se exporta aparte porque es lo único de este fichero que puede afirmarse
+// sin descodificar un QR — y es justo donde estaba el fallo. Ver `test_citas_relay.js`.
+module.exports.__test__ = { urlDeLaClinica };
