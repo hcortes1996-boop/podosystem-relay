@@ -48,6 +48,7 @@ const router  = require('express').Router();
 const express = require('express');
 const fs      = require('fs');
 const path    = require('path');
+const QRCode  = require('qrcode');
 
 const { construirVars, __test__ } = require('../netlify-deploy');
 const applyPlaceholders = __test__.applyPlaceholders;
@@ -132,6 +133,46 @@ router.use('/cita-assets', express.static(TEMPLATE_DIR, {
   maxAge: '1h',
   fallthrough: true,
 }));
+
+/* ── El QR de la página de una clínica ─────────────────────────────────────── */
+//
+// Bloque 4 del estudio: «nadie va a teclear una URL larga en el móvil, y la demostración solo
+// impresiona si la reserva se hace desde el móvil mientras se mira el PC».
+//
+// ── Dos decisiones, y sus porqués ───────────────────────────────────────────
+//
+// 1. **Lo genera el RELAY, no el programa.** Así el EXE no gana una dependencia nueva: se pinta
+//    con un `<img src="…">` y ya está. Comprobado antes de decidirlo: la ventana no declara
+//    ninguna política de contenido y sus `webPreferences` no restringen imágenes, así que una
+//    remota carga. Y `qrcode` es JavaScript puro —`pngjs`, `yargs`, `dijkstrajs`—, sin
+//    compilación nativa que complique la construcción en Railway; la auditoría confirma que no
+//    añade ninguna vulnerabilidad al árbol.
+//
+// 2. **Va atado a un `clinicaId`, NO es un generador de QR abierto.** Un `/api/qr?texto=…`
+//    habría sido más corto y habría dejado un servicio alojado en nuestro dominio capaz de
+//    fabricar códigos que apuntan a donde quiera cualquiera. Aquí solo se puede codificar la
+//    dirección de una clínica que existe y está activa: no hay nada que inyectar.
+router.get('/cita-qr/:clinicaId', async (req, res) => {
+  const clinica = req.db
+    .prepare('SELECT id FROM clinicas WHERE id = ? AND activa = 1')
+    .get(req.params.clinicaId);
+
+  if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
+
+  const base = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
+  try {
+    const svg = await QRCode.toString(`${base}/cita/${clinica.id}`, {
+      type: 'svg', margin: 1, width: 320, errorCorrectionLevel: 'M',
+    });
+    // Cacheable: para una misma clínica el QR no cambia nunca.
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(svg);
+  } catch (e) {
+    console.error('[citas-web] no se pudo generar el QR:', e.message);
+    return res.status(500).json({ ok: false, error: 'No se pudo generar el QR' });
+  }
+});
 
 /* ── La página de una clínica ──────────────────────────────────────────────── */
 router.get('/cita/:clinicaId', (req, res) => {

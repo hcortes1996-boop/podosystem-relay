@@ -128,6 +128,25 @@ const pedir = async (ruta) => {
     ok(raro.text.includes('CLINICA CON GUIONES'), 'y sale su nombre');
   }
 
+  console.log('\n── El QR de la web de citas ──');
+  //
+  // Bloque 4: «nadie va a teclear una URL larga en el móvil». Lo genera el relay y no el
+  // programa, para que el EXE no gane una dependencia — se pinta con un <img src="…">.
+  {
+    const qr = await pedir('/cita-qr/trialABC123');
+    ok(qr.status === 200, 'el QR de una clínica activa responde 200', `status ${qr.status}`);
+    ok(/image\/svg\+xml/.test(qr.tipo), 'y es un SVG', qr.tipo);
+    ok(qr.text.startsWith('<svg'), 'un SVG de verdad, no un JSON de error', qr.text.slice(0, 60));
+    ok(/max-age=\d+/.test(qr.cache), 'cacheado: para una clínica el QR no cambia nunca', qr.cache);
+
+    const apagada = await pedir('/cita-qr/canceladaXY');
+    ok(apagada.status === 404, 'una clínica dada de baja NO tiene QR',
+      'si no, seguiría repartiéndose un código que lleva a una web cerrada');
+
+    const nada = await pedir('/cita-qr/noexisteXXXX');
+    ok(nada.status === 404, 'y una que no existe tampoco');
+  }
+
   console.log('\n── Clínica inexistente y clínica cancelada ──');
   const no = await pedir('/cita/noexisteXXXX');
   ok(no.status === 404, 'una clínica que no existe da 404', `status ${no.status}`);
