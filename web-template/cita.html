@@ -1529,6 +1529,36 @@
         if (i < numActual) dot.classList.add('done');
         else if (i === numActual) dot.classList.add('active');
       }
+
+      /* ── Subir a lo que se acaba de enseñar ──────────────────────────────────
+       *
+       * Esta función solo intercambiaba clases: **nunca movía la página**. Y el panel de éxito
+       * es mucho más corto que el formulario, así que al confirmar el contenido encoge, el
+       * navegador conserva la posición del scroll y el paciente se queda mirando «¿Cómo
+       * funciona?» —que está más abajo— sin ver «cita confirmada» ni el día y la hora, que sí
+       * se han rellenado justo antes.
+       *
+       * Francisco, 20-09-2026: «me ha pasado ya varias veces, pacientes que me escriben y me
+       * dicen no sé si la he cogido bien». El WhatsApp de confirmación no es inmediato, así que
+       * se quedan un rato sin saber si tienen hora — y alguno reservará otra vez, o se irá.
+       * Ocurría en las tres webs porque las tres salen de esta misma plantilla.
+       *
+       * Vale para TODOS los pasos, no solo para el de éxito: la rama del 409 («ese horario
+       * acaba de reservarse») devuelve al paso 1 y tenía exactamente el mismo problema.
+       *
+       * ⚠️ En la PRIMERA llamada no se sube: esa ocurre al cargar la página, y movería el
+       * scroll de alguien que acaba de entrar o que viene de un enlace con ancla. Y solo se
+       * sube si el panel no se está viendo ya, para no dar un tirón inútil. */
+      const panel = document.getElementById('step-' + n);
+      if (panel && showStep.yaSeUso) {
+        const r = panel.getBoundingClientRect();
+        if (r.top < 0 || r.top > window.innerHeight * 0.4) {
+          const cab = document.querySelector('header');
+          const alto = cab ? cab.offsetHeight : 0;
+          window.scrollTo({ top: r.top + window.scrollY - alto - 20, behavior: 'smooth' });
+        }
+      }
+      showStep.yaSeUso = true;
     }
 
     // ── Pieza 3.3 — Selector de podólogo ────────────────────────

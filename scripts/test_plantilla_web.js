@@ -100,6 +100,38 @@ console.log('\n── cita.html no se ha tocado ──');
      'la página de reservas no sabe nada del token — sigue siendo la de siempre');
 }
 
+console.log('\n── Al cambiar de paso, la página SUBE a lo que enseña ──');
+{
+  /* Francisco, 20-09-2026: sus pacientes reservaban y NO veían la confirmación. «Se van al
+   * apartado cómo funciona que está más abajo, y no ven cita confirmada con el día y la hora…
+   * me ha pasado ya varias veces, pacientes que me escriben y me dicen no sé si la he cogido
+   * bien.»
+   *
+   * `showStep` solo intercambiaba clases y no movía la página nunca. Como el panel de éxito es
+   * más corto que el formulario, al confirmar el contenido encogía, el navegador conservaba la
+   * posición del scroll y el paciente se quedaba mirando otra sección — con la confirmación,
+   * el día y la hora ya rellenados, pero fuera de la pantalla. Ocurría en las TRES webs, porque
+   * las tres salen de esta plantilla.
+   *
+   * ⚠️ Se comprueba dentro del CUERPO de showStep, no en el fichero entero: hay otros scroll en
+   * la página (el suavizado de los enlaces del menú), y buscarlo en 90 KB daría verde sin que
+   * esto estuviera arreglado. */
+  const c = fs.readFileSync(path.join(PLANTILLA, 'cita.html'), 'utf-8');
+  const i = c.indexOf('function showStep');
+  const cuerpo = i < 0 ? '' : c.slice(i, c.indexOf('\n    }', i));
+
+  ok(i >= 0, 'showStep sigue existiendo');
+  ok(/window\.scrollTo/.test(cuerpo),
+     'y sube la página al cambiar de paso',
+     'sin esto, confirmar deja al paciente donde estaba y no ve si tiene hora');
+  ok(/getElementById\('step-' \+ n\)/.test(cuerpo),
+     'subiendo al panel que acaba de enseñarse, no a un punto fijo',
+     'vale para todos los pasos: la rama del 409 devuelve al paso 1 y tenía el mismo problema');
+  ok(/showStep\.yaSeUso/.test(cuerpo),
+     'pero NO en la primera llamada, que ocurre al cargar la página',
+     'subir al cargar movería el scroll de quien acaba de entrar o viene de un enlace con ancla');
+}
+
 console.log('\n── Una clínica sin podólogos publicados PUEDE reservar ──');
 {
   // El fallo, detectado en Merino el 15-08-2026 con la página ya desplegada:
