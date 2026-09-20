@@ -83,6 +83,12 @@ app.use('/admin', require('./routes/admin'));
 // Widget embebible como archivo estático
 app.use('/widget', express.static('widget'));
 
+// La web de citas servida por el propio relay: GET /cita/:clinicaId (+ /cita-assets/…).
+// Decisión ② del 13-09-2026: el relay sirve la web de los trials; Netlify, solo la de quien
+// paga. Va DESPUÉS de las rutas de /api y ANTES del 404, y no monta nada bajo /api, así que no
+// puede interferir con las agendas ni con las reservas.
+app.use('/', require('./routes/citas-web'));
+
 // 404
 app.use((_req, res) => {
   res.status(404).json({ ok: false, error: 'Ruta no encontrada' });

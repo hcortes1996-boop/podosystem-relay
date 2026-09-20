@@ -236,6 +236,12 @@ async function redeployClientSite({ clinicaId, nombre, ciudad = '', direccion = 
 
 module.exports = { deployClientSite, redeployClientSite, construirVars, construirFicheros };
 
+// `applyPlaceholders` lo necesita también `routes/citas-web.js`, que sirve la página desde el
+// propio relay para los trials (decisión ② del 13-09-2026). Va por `__test__` de abajo y no por
+// una copia, por el mismo motivo que dice esa nota: si la página del trial y la que se despliega
+// en Netlify sustituyeran los marcadores de formas distintas, el que prueba vería una web y el
+// que paga otra — y nadie se enteraría hasta tener las dos delante.
+
 // Expuesto para scripts/test_plantilla_web.js. El test comprueba que NINGÚN
 // marcador se queda sin sustituir en ninguna página, y para eso tiene que usar
 // esta función y no una copia suya: una copia se separa del original sin que

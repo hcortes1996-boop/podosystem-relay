@@ -28,6 +28,30 @@ const PORT = 3097;
 process.env.DB_PATH = TMP;
 process.env.PORT = String(PORT);
 
+/* ⚠️ Borrar la base ANTES de empezar, no solo al terminar.
+ *
+ * El nombre lleva el PID, y **en Windows los PID se reciclan**. Si una ejecución anterior murió
+ * sin llegar a su limpieza —cosa que pasa, porque estas pruebas salen con `process.exit`— su
+ * fichero se queda en %TEMP%, y la siguiente que tenga ese mismo número lo abre y **hereda sus
+ * filas**.
+ *
+ * Medido el 20-09-2026: esta prueba falló en la batería con «esperaba 2 horas ocupadas, hay 3»,
+ * y la intrusa era `2026-09-21 11:00`. El fichero `relay_canc_24740.db` —el PID de esa
+ * ejecución— contenía:
+ *
+ *     2026-09-23 09:30, 2026-09-23 10:00, 2026-09-21 11:00, 2026-09-23 11:00
+ *
+ * El 21 de septiembre es la fecha que calcula esta prueba (hoy+3) cuando se ejecuta un 18. Había
+ * 176 bases huérfanas en %TEMP%, algunas del día 13.
+ *
+ * Es la SEGUNDA causa de que el banco del relay «bloquee commits al azar» (punto 27): no solo el
+ * aborto de libuv al salir. Y las dos se alimentan — abortar deja bases sucias, y las bases
+ * sucias hacen fallar pruebas que están bien.
+ */
+for (const sufijo of ['', '-wal', '-shm']) {
+  try { fs.unlinkSync(TMP + sufijo); } catch (_) { /* no existía: es lo normal */ }
+}
+
 let pasados = 0, fallados = 0;
 const ok = (cond, nombre, extra) => {
   if (cond) { pasados++; console.log('  ✅ ' + nombre); }
