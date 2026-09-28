@@ -105,12 +105,21 @@ app.listen(PORT, () => {
   console.log(`[podosystem-relay] Escuchando en puerto ${PORT}`);
   console.log(`[podosystem-relay] Base de datos: ${process.env.DB_PATH || './relay.db'}`);
   console.log(`[podosystem-relay] ADMIN_TOKEN cargado: ${process.env.ADMIN_TOKEN ? 'SI' : 'NO (usando default)'}`);
-  console.log(`[podosystem-relay] REGISTRO_SECRET cargado: "${process.env.REGISTRO_SECRET || '(no definido)'}"`);
+  // Si está, no CUÁL (28-09-2026): antes se imprimía el valor entero en los logs de Railway.
+  console.log(`[podosystem-relay] REGISTRO_SECRET cargado: ${process.env.REGISTRO_SECRET ? 'SI' : 'NO'}`);
   // Pieza 6.0 — cron recordatorios cloud (push notifications)
   try {
     const { iniciarCronRecordatorios } = require('./lib/cron-recordatorios');
     iniciarCronRecordatorios(db);
   } catch (e) {
     console.error('[cron-recordatorios] no se pudo arrancar:', e.message);
+  }
+  // Fin del servicio: cerrar las páginas de prueba caducadas y, pasado el mes de cortesía,
+  // borrar los datos de la clínica. El borrado va en ENSAYO salvo LIMPIEZA_MODO=aplicar.
+  try {
+    require('./lib/limpieza-clinicas').iniciarLimpieza(db);
+    console.log(`[limpieza] programada — modo ${process.env.LIMPIEZA_MODO === 'aplicar' ? 'APLICAR' : 'ensayo'}`);
+  } catch (e) {
+    console.error('[limpieza] no se pudo arrancar:', e.message);
   }
 });

@@ -136,6 +136,21 @@ router.post('/api/licencias/verificar', (req, res) => {
 // ── API (requiere ADMIN_TOKEN) ────────────────────────────────────────────────
 
 /**
+ * La limpieza de clínicas (28-09-2026): el informe de la última pasada, y otra pasada en ENSAYO
+ * al momento con `?ahora=1` para ver qué haría sin esperar a las seis horas. En ensayo no borra
+ * nada aunque el servidor esté en `LIMPIEZA_MODO=aplicar`: aquí solo se MIRA. (El cierre de
+ * páginas de prueba caducadas, que es reversible, sí se aplica en cualquier pasada.)
+ */
+router.get('/api/limpieza', authAdmin, (req, res) => {
+  const lim = require('../lib/limpieza-clinicas');
+  if (req.query.ahora === '1') {
+    return res.json({ ok: true, informe: lim.revisarClinicas(req.db, { modo: 'ensayo' }) });
+  }
+  res.json({ ok: true, modoServidor: process.env.LIMPIEZA_MODO === 'aplicar' ? 'aplicar' : 'ensayo',
+             diasCortesia: lim.DIAS_CORTESIA, informe: lim.ultimo() });
+});
+
+/**
  * Diagnóstico del proceso que está corriendo AHORA MISMO.
  *
  * Nace el 27-08-2026 de no poder responder a una pregunta simple: los correos salían con
