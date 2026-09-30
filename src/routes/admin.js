@@ -193,6 +193,32 @@ router.get('/api/copia-relay', authAdmin, async (req, res) => {
 });
 
 /**
+ * Una copia cifrada AL MOMENTO, para guardarla fuera de Railway y de Backblaze (30-09-2026).
+ *
+ * Nace para mover el relay de región: el disco cambia de continente y Railway solo hace copias
+ * de disco en el plan Pro. Descargada y descifrada en el PC con la clave que Francisco guarda,
+ * comprueba además que ESA clave es la misma que la de Railway — si no coincidieran, las copias
+ * de Backblaze no servirían nunca y nadie lo sabría hasta necesitarlas.
+ *
+ * Es el mismo fichero que la copia diaria (`generarCopiaCifrada`): ya verificado, y cifrado. Sin
+ * la clave no se lee, así que descargarlo no expone nada que no exponga Backblaze.
+ */
+router.get('/api/copia-relay/descargar', authAdmin, async (req, res) => {
+  const copia = require('../lib/copia-relay');
+  const cfg = copia.configuracion();
+  if (!cfg.clave) return res.status(503).json({ ok: false, error: 'Falta RELAY_COPIA_CLAVE en el servidor' });
+  try {
+    const { cifrado } = await copia.generarCopiaCifrada(req.db, cfg.clave);
+    const nombre = `relay-${new Date().toISOString().replace(/[:.]/g, '-')}.db.gz.enc`;
+    res.set('Content-Type', 'application/octet-stream');
+    res.set('Content-Disposition', `attachment; filename="${nombre}"`);
+    res.send(cifrado);
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+/**
  * Diagnóstico del proceso que está corriendo AHORA MISMO.
  *
  * Nace el 27-08-2026 de no poder responder a una pregunta simple: los correos salían con

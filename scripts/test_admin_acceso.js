@@ -17,6 +17,8 @@ process.env.DB_PATH = TMP;
 process.env.PORT = String(PORT);
 process.env.NODE_ENV = 'test';
 process.env.ADMIN_TOKEN = 'token-de-prueba-acceso';
+const CLAVE_COPIA = require('crypto').randomBytes(32).toString('hex');
+process.env.RELAY_COPIA_CLAVE = CLAVE_COPIA;
 delete process.env.RESEND_API_KEY;
 
 let ok = 0, fallos = 0;
@@ -46,6 +48,16 @@ const pedir = (token) => fetch(`${BASE}/admin/api/diagnostico`, { headers: token
       'con la ruta y la hora');
     prueba(!JSON.stringify(filas).includes(process.env.ADMIN_TOKEN) && !JSON.stringify(filas).includes('otra-cosa-cualquiera'),
       'y NUNCA con la contraseña, ni la buena ni la probada');
+
+    // La copia al momento, para guardarla fuera de Railway antes de moverlo de región.
+    const sinPermiso = await fetch(BASE + '/admin/api/copia-relay/descargar');
+    prueba(sinPermiso.status === 401, 'la copia al momento NO se entrega sin contraseña');
+    const d = await fetch(BASE + '/admin/api/copia-relay/descargar', { headers: { Authorization: 'Bearer ' + process.env.ADMIN_TOKEN } });
+    const cuerpo = Buffer.from(await d.arrayBuffer());
+    const { descifrar, claveDeCifrado } = require('../src/lib/copia-relay');
+    let base = null; try { base = descifrar(cuerpo, claveDeCifrado(CLAVE_COPIA)); } catch (_) {}
+    prueba(d.status === 200 && base && base.subarray(0, 15).toString() === 'SQLite format 3',
+      'con ella, llega CIFRADA y se descifra en una base SQLite válida');
 
     // Sin ADMIN_TOKEN: otro proceso, porque se lee al cargar el módulo.
     const hijo = spawnSync(process.execPath, ['-e', `

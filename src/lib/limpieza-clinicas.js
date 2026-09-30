@@ -222,8 +222,9 @@ function iniciarLimpieza(db) {
     }
   };
   // Un minuto después de arrancar: que el relay atienda primero lo urgente.
-  setTimeout(pasada, 60 * 1000);
-  setInterval(pasada, INTERVALO_MS);
+  // unref(): no impiden que el proceso termine (pruebas, reinicios).
+  setTimeout(pasada, 60 * 1000).unref();
+  setInterval(pasada, INTERVALO_MS).unref();
 }
 
 module.exports = { revisarClinicas, iniciarLimpieza, ultimo, DIAS_CORTESIA, RESERVA_DIAS_TRAS_CITA };

@@ -105,6 +105,28 @@ async function subir(cx, nombre, datos) {
 }
 
 /**
+ * La copia cifrada, en memoria y VERIFICADA —se descifra y tiene que salir la base idéntica—, sin
+ * subirla. La usa la copia diaria y la descarga del panel: las dos son el mismo fichero.
+ */
+async function generarCopiaCifrada(db, clave) {
+  const tmp = path.join(os.tmpdir(), `relay-copia-${process.pid}-${Date.now()}.db`);
+  try {
+    await db.backup(tmp);
+    const crudo = fs.readFileSync(tmp);
+    const cifrado = cifrar(Buffer.from(gzipSync(crudo, { level: 6 })), clave);
+    // Antes de darla por buena, se comprueba que se ABRE: una copia que no se puede restaurar no
+    // es una copia. Tiene que salir la base entera, byte a byte, con la cabecera de SQLite.
+    const vuelta = descifrar(cifrado, clave);
+    if (!vuelta.equals(crudo) || !vuelta.subarray(0, 16).equals(Buffer.from('SQLite format 3\0'))) {
+      throw new Error('la copia cifrada no se descifra en una base idéntica');
+    }
+    return { crudo, cifrado };
+  } finally {
+    try { fs.unlinkSync(tmp); } catch (_) {}
+  }
+}
+
+/**
  * Una copia. No lanza: devuelve el resultado, que queda en `ultimo()` y en el log.
  * `ahora` y `env` se pueden inyectar para probarlo.
  */
@@ -116,18 +138,9 @@ async function hacerCopia(db, { env = process.env, ahora = new Date() } = {}) {
     resultado.motivo = 'Falta configuración: ' + cfg.faltan.join(', ');
     return resultado;
   }
-  const tmp = path.join(os.tmpdir(), `relay-copia-${process.pid}-${Date.now()}.db`);
   try {
-    await db.backup(tmp);
-    const crudo = fs.readFileSync(tmp);
-    const cifrado = cifrar(Buffer.from(gzipSync(crudo, { level: 6 })), cfg.clave);
-    // Antes de subirla, se comprueba que se ABRE: una copia que no se puede restaurar no es una
-    // copia. Se descifra en memoria con la misma clave y tiene que salir la base entera, byte a
-    // byte, con la cabecera de SQLite. Si no, no se sube y se dice.
-    const vuelta = descifrar(cifrado, cfg.clave);
-    if (!vuelta.equals(crudo) || !vuelta.subarray(0, 16).equals(Buffer.from('SQLite format 3\0'))) {
-      throw new Error('la copia cifrada no se descifra en una base idéntica — no se sube');
-    }
+    // Generada y VERIFICADA (se descifra en la base idéntica) antes de subir nada.
+    const { crudo, cifrado } = await generarCopiaCifrada(db, cfg.clave);
     resultado.verificada = true;
     const nombre =`${PREFIJO}relay-${ahora.toISOString().slice(0, 10)}.db.gz.enc`;
     const cx = await b2(cfg);
@@ -146,8 +159,6 @@ async function hacerCopia(db, { env = process.env, ahora = new Date() } = {}) {
     Object.assign(resultado, { ok: true, fichero: nombre, bytesBase: crudo.length, bytesCopia: cifrado.length, antiguasBorradas: borradas });
   } catch (e) {
     resultado.error = e.message;
-  } finally {
-    try { fs.unlinkSync(tmp); } catch (_) {}
   }
   return resultado;
 }
@@ -162,8 +173,9 @@ function iniciarCopiaRelay(db) {
     else if (ultimoResultado.ok) console.log(`[copia-relay] ✅ ${ultimoResultado.fichero} (${ultimoResultado.bytesCopia} B), ${ultimoResultado.antiguasBorradas} antigua(s) borrada(s)`);
     else console.error('[copia-relay] ❌ la copia falló: ' + ultimoResultado.error);
   };
-  setTimeout(pasada, 10 * 60 * 1000);           // diez minutos tras arrancar
-  setInterval(pasada, 24 * 60 * 60 * 1000);     // y una vez al día
+  // unref(): los temporizadores no impiden que el proceso termine (pruebas, reinicios).
+  setTimeout(pasada, 10 * 60 * 1000).unref();           // diez minutos tras arrancar
+  setInterval(pasada, 24 * 60 * 60 * 1000).unref();     // y una vez al día
 }
 
-module.exports = { hacerCopia, iniciarCopiaRelay, ultimo, cifrar, descifrar, claveDeCifrado, configuracion, DIAS_CONSERVACION };
+module.exports = { hacerCopia, generarCopiaCifrada, iniciarCopiaRelay, ultimo, cifrar, descifrar, claveDeCifrado, configuracion, DIAS_CONSERVACION };
