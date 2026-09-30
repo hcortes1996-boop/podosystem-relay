@@ -40,6 +40,7 @@
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 const DIAS_CORTESIA = 30;
+const RESERVA_DIAS_TRAS_CITA = 7;   // una reserva vive hasta su cita + 7 días (ver el paso 3)
 const INTERVALO_MS = 6 * 60 * 60 * 1000;   // cuatro veces al día: fechas de días, no de minutos
 
 // Estados de licencia que ya NO dan servicio. Todo lo demás cuenta como viva.
@@ -166,6 +167,32 @@ function revisarClinicas(db, { ahora = new Date(), modo = process.env.LIMPIEZA_M
     }
   }
 
+  // ── 3. Reservas de citas ya pasadas: fecha de la cita + 7 días (30-09-2026) ──
+  //
+  // Decidido con Francisco. Una reserva hace falta hasta el día de la cita —el enlace de anulación
+  // del paciente la busca aquí— y una semana más: el PC se entera de las anulaciones pidiendo las
+  // de los últimos 7 días, para ponerse al día si estuvo apagado. Después no la usa nada: la cita
+  // ya está en la agenda del PC. Vale también para las que nunca llegaron a un PC.
+  // Con el mismo modo que el resto: en ENSAYO solo se cuentan.
+  try {
+    const limite = new Date(t - RESERVA_DIAS_TRAS_CITA * DIA_MS).toISOString().slice(0, 10);
+    const donde = "fecha < ? AND fecha GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'";
+    const n = db.prepare(`SELECT COUNT(*) AS n FROM reservas WHERE ${donde}`).get(limite).n;
+    informe.reservasCaducadas = { limite, cuantas: n, borradas: 0 };
+    if (aplicar && n) {
+      informe.reservasCaducadas.borradas = db.prepare(`DELETE FROM reservas WHERE ${donde}`).run(limite).changes;
+    }
+  } catch (e) {
+    informe.errores.push({ reservas: e.message });
+  }
+
+  // ── 4. El registro de accesos al panel, 90 días ─────────────────────────
+  // Es NUESTRO registro, no datos de pacientes: se purga siempre, no depende del modo.
+  try {
+    const hace90 = new Date(t - 90 * DIA_MS).toISOString();
+    informe.accesosAdminPurgados = db.prepare('DELETE FROM admin_accesos WHERE fecha < ?').run(hace90).changes;
+  } catch (_) { /* tabla aún sin crear en una base vieja: nada que purgar */ }
+
   return informe;
 }
 
@@ -175,7 +202,7 @@ function ultimo() { return ultimoInforme; }
 function resumen(inf) {
   return `[limpieza] ${inf.modo}: ${inf.pruebasCerradas.length} prueba(s) cerrada(s), ` +
     `${inf.pruebasReabiertas.length} reabierta(s), ${inf.aBorrar.length} por borrar, ` +
-    `${inf.borradas.length} borrada(s), ${inf.errores.length} error(es)`;
+    `${inf.borradas.length} borrada(s), reservas pasadas ${(inf.reservasCaducadas||{}).cuantas||0} (${(inf.reservasCaducadas||{}).borradas||0} borradas), ${inf.errores.length} error(es)`;
 }
 
 function iniciarLimpieza(db) {
@@ -199,4 +226,4 @@ function iniciarLimpieza(db) {
   setInterval(pasada, INTERVALO_MS);
 }
 
-module.exports = { revisarClinicas, iniciarLimpieza, ultimo, DIAS_CORTESIA };
+module.exports = { revisarClinicas, iniciarLimpieza, ultimo, DIAS_CORTESIA, RESERVA_DIAS_TRAS_CITA };

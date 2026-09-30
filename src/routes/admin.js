@@ -24,7 +24,15 @@ const { genId, genApiKey, genActivationCode } = require('../db');
 const { firmar } = require('../firma');
 const { deployClientSite, redeployClientSite } = require('../netlify-deploy');
 
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || 'cambiar-este-token-en-railway';
+/* ⚠️ Sin valor por defecto (30-09-2026). Era `|| 'cambiar-este-token-en-railway'`: si la variable
+ * faltara en Railway, el panel —licencias, clínicas, datos de pacientes en las reservas— quedaba
+ * abierto con una contraseña escrita en el código, que está en GitHub. Ahora, sin ADMIN_TOKEN (o
+ * con uno ridículamente corto) el panel NO se abre. Fallar cerrado. */
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+const ADMIN_TOKEN_VALIDO = ADMIN_TOKEN.length >= 12 && ADMIN_TOKEN !== 'cambiar-este-token-en-railway';
+if (!ADMIN_TOKEN_VALIDO) {
+  console.error('[admin] ⛔ ADMIN_TOKEN no definido o demasiado corto: el panel de administración queda CERRADO');
+}
 
 // Cargar el HTML del panel al arrancar (más fiable que sendFile en producción)
 const adminHtmlPath = path.resolve(__dirname, '..', 'admin-panel', 'index.html');
@@ -41,10 +49,30 @@ try {
   console.error('[admin] ERROR cargando HTML:', e.message);
 }
 
+/* Cada acceso al panel queda REGISTRADO (30-09-2026): cuándo, qué ruta, desde qué IP y si se
+ * aceptó. Es la pregunta que hay que poder contestar ante una brecha —¿entró alguien?— y hasta hoy
+ * no había forma. Se guardan 90 días (los purga `limpieza-clinicas`). Nunca se guarda el token. */
+function registrarAccesoAdmin(req, aceptado) {
+  try {
+    req.db.prepare(`INSERT INTO admin_accesos (fecha, metodo, ruta, ip, aceptado) VALUES (?, ?, ?, ?, ?)`)
+      .run(new Date().toISOString(), req.method, String(req.originalUrl || req.path).split('?')[0].slice(0, 200),
+           String(req.ip || req.headers['x-forwarded-for'] || '').slice(0, 64), aceptado ? 1 : 0);
+  } catch (_) { /* registrar no puede tumbar el panel */ }
+}
+
 function authAdmin(req, res, next) {
+  if (!ADMIN_TOKEN_VALIDO) {
+    return res.status(503).json({ ok: false, error: 'Panel de administración desactivado: falta ADMIN_TOKEN en el servidor' });
+  }
   const header = req.headers['authorization'] || '';
   const token  = header.replace(/^Bearer\s+/i, '').trim();
-  if (token !== ADMIN_TOKEN) {
+  // Comparación en tiempo constante: con `!==` el tiempo de respuesta delata cuántos caracteres
+  // iniciales acierta quien prueba.
+  const a = crypto.createHash('sha256').update(token).digest();
+  const b = crypto.createHash('sha256').update(ADMIN_TOKEN).digest();
+  const ok = token.length > 0 && crypto.timingSafeEqual(a, b);
+  registrarAccesoAdmin(req, ok);
+  if (!ok) {
     return res.status(401).json({ ok: false, error: 'No autorizado' });
   }
   next();
@@ -148,6 +176,20 @@ router.get('/api/limpieza', authAdmin, (req, res) => {
   }
   res.json({ ok: true, modoServidor: process.env.LIMPIEZA_MODO === 'aplicar' ? 'aplicar' : 'ensayo',
              diasCortesia: lim.DIAS_CORTESIA, informe: lim.ultimo() });
+});
+
+/**
+ * La copia diaria cifrada de la base del relay (30-09-2026): la última, y qué variables faltan
+ * (sus NOMBRES, nunca sus valores). Con `?ahora=1` hace una copia en el acto: es la forma de
+ * comprobarlo la primera vez sin esperar un día.
+ */
+router.get('/api/copia-relay', authAdmin, async (req, res) => {
+  const copia = require('../lib/copia-relay');
+  if (req.query.ahora === '1') {
+    return res.json({ ok: true, resultado: await copia.hacerCopia(req.db) });
+  }
+  res.json({ ok: true, faltan: copia.configuracion().faltan, diasConservacion: copia.DIAS_CONSERVACION,
+             ultima: copia.ultimo() });
 });
 
 /**

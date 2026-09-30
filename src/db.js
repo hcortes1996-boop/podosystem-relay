@@ -451,6 +451,17 @@ function initDB() {
     -- Pieza 8.2 — Idempotencia de webhooks Stripe.
     -- Stripe reintenta hasta 3 dias si el endpoint no responde 2xx.
     -- Cada evento tiene event.id unico — usamos esa propiedad para skip.
+    -- Cada acceso al panel de administracion (30-09-2026): cuando, que ruta, desde que IP y si se
+    -- acepto. Nunca el token. Se purga a los 90 dias (lib/limpieza-clinicas.js).
+    CREATE TABLE IF NOT EXISTS admin_accesos (
+      id        INTEGER PRIMARY KEY AUTOINCREMENT,
+      fecha     TEXT NOT NULL,
+      metodo    TEXT,
+      ruta      TEXT,
+      ip        TEXT,
+      aceptado  INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS webhooks_stripe_log (
       eventId     TEXT PRIMARY KEY,
       type        TEXT NOT NULL,

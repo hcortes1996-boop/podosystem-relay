@@ -45,7 +45,7 @@ const licencia = (id, clinicaId, estado) =>
   db.prepare("INSERT INTO licencias (id, licenseKey, clienteNombre, clienteEmail, clinicaId, estado) VALUES (?, ?, 'C', 'c@x.es', ?, ?)")
     .run(id, 'KEY-' + id, clinicaId, estado);
 const reserva = (clinicaId) =>
-  db.prepare("INSERT INTO reservas (id, clinicaId, nombre, telefono, fecha, hora, estado) VALUES (?, ?, 'PACIENTE', '600', '2026-09-01', '10:00', 'sincronizada')")
+  db.prepare("INSERT INTO reservas (id, clinicaId, nombre, telefono, fecha, hora, estado) VALUES (?, ?, 'PACIENTE', '600', '2027-06-01', '10:00', 'sincronizada')")
     .run('r_' + clinicaId + '_' + Math.random().toString(36).slice(2, 7), clinicaId);
 const fila = (id) => db.prepare('SELECT activa, desactivadaPor FROM clinicas WHERE id = ?').get(id);
 
@@ -121,6 +121,32 @@ try {
   prueba(fila('PRU_VIGENTE') && fila('PRU_COMPRO') && fila('PAGO_VUELVE'), 'y las demás también');
   prueba(fila('PAGO_RENOVO') && db.prepare("SELECT COUNT(*) n FROM reservas WHERE clinicaId='PAGO_RENOVO'").get().n === 1,
     'una clínica que VOLVIÓ a suscribirse no se borra por su licencia vieja caducada');
+
+  console.log('\n── Reservas: fecha de la cita + 7 días (30-09-2026) ──');
+  // En una clínica ACTIVA: cumplido su fin, la reserva ya está en la agenda del PC.
+  const res = (id, fecha) => db.prepare("INSERT INTO reservas (id, clinicaId, nombre, telefono, fecha, hora, estado) VALUES (?, 'PAGO_VIVA', 'P', '600', ?, '10:00', 'sincronizada')").run(id, fecha);
+  res('R_HACE8', '2026-09-23');    // cita hace 8 días (HOY = 01-10)
+  res('R_HACE6', '2026-09-25');    // hace 6: aún dentro de la semana del PC apagado
+  res('R_FUTURA', '2026-10-05');   // aún no ha llegado: el enlace de anulación la necesita
+  res('R_RARA', '23/09/2026');     // formato extraño: no se toca a ciegas
+  const hay = (id) => !!db.prepare('SELECT 1 FROM reservas WHERE id = ?').get(id);
+
+  inf = revisarClinicas(db, { ahora: HOY });
+  prueba(inf.reservasCaducadas && inf.reservasCaducadas.cuantas === 1 && hay('R_HACE8'),
+    'en ENSAYO, cuenta la reserva de una cita de hace 8 días y NO la borra', JSON.stringify(inf.reservasCaducadas));
+  inf = revisarClinicas(db, { ahora: HOY, modo: 'aplicar' });
+  prueba(!hay('R_HACE8') && inf.reservasCaducadas.borradas === 1,
+    'aplicando, se borra la de hace 8 días — la cita ya está en la agenda del PC');
+  prueba(hay('R_HACE6'), 'la de hace 6 días se conserva: un PC apagado aún puede recoger su anulación');
+  prueba(hay('R_FUTURA'), 'y la de una cita FUTURA también: el enlace de anulación del paciente la busca aquí');
+  prueba(hay('R_RARA'), 'una fecha en otro formato no se borra a ciegas');
+
+  console.log('\n── El registro de accesos al panel, 90 días ──');
+  db.prepare("INSERT INTO admin_accesos (fecha, metodo, ruta, ip, aceptado) VALUES (?, 'GET', '/x', '1.1.1.1', 1)").run(dias(-91).toISOString());
+  db.prepare("INSERT INTO admin_accesos (fecha, metodo, ruta, ip, aceptado) VALUES (?, 'GET', '/y', '1.1.1.1', 1)").run(dias(-10).toISOString());
+  inf = revisarClinicas(db, { ahora: HOY });
+  prueba(inf.accesosAdminPurgados === 1 && db.prepare('SELECT COUNT(*) n FROM admin_accesos').get().n === 1,
+    'se purgan los accesos de hace más de 90 días, y se conservan los recientes');
 } finally {
   try { db.close(); } catch (_) {}
   for (const f of [TMP, TMP + '-wal', TMP + '-shm']) { try { fs.unlinkSync(f); } catch (_) {} }

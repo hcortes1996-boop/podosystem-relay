@@ -104,7 +104,7 @@ const PORT = process.env.PORT || 3010;
 app.listen(PORT, () => {
   console.log(`[podosystem-relay] Escuchando en puerto ${PORT}`);
   console.log(`[podosystem-relay] Base de datos: ${process.env.DB_PATH || './relay.db'}`);
-  console.log(`[podosystem-relay] ADMIN_TOKEN cargado: ${process.env.ADMIN_TOKEN ? 'SI' : 'NO (usando default)'}`);
+  console.log(`[podosystem-relay] ADMIN_TOKEN cargado: ${process.env.ADMIN_TOKEN ? 'SI' : 'NO — el panel de administración queda CERRADO'}`);
   // Si está, no CUÁL (28-09-2026): antes se imprimía el valor entero en los logs de Railway.
   console.log(`[podosystem-relay] REGISTRO_SECRET cargado: ${process.env.REGISTRO_SECRET ? 'SI' : 'NO'}`);
   // Pieza 6.0 — cron recordatorios cloud (push notifications)
@@ -121,5 +121,12 @@ app.listen(PORT, () => {
     console.log(`[limpieza] programada — modo ${process.env.LIMPIEZA_MODO === 'aplicar' ? 'APLICAR' : 'ensayo'}`);
   } catch (e) {
     console.error('[limpieza] no se pudo arrancar:', e.message);
+  }
+  // Copia diaria cifrada de la base del relay a Backblaze (30-09-2026). Sin sus variables, no
+  // copia y lo dice en el log y en /admin/api/copia-relay.
+  try {
+    require('./lib/copia-relay').iniciarCopiaRelay(db);
+  } catch (e) {
+    console.error('[copia-relay] no se pudo arrancar:', e.message);
   }
 });
