@@ -121,7 +121,15 @@ async function hacerCopia(db, { env = process.env, ahora = new Date() } = {}) {
     await db.backup(tmp);
     const crudo = fs.readFileSync(tmp);
     const cifrado = cifrar(Buffer.from(gzipSync(crudo, { level: 6 })), cfg.clave);
-    const nombre = `${PREFIJO}relay-${ahora.toISOString().slice(0, 10)}.db.gz.enc`;
+    // Antes de subirla, se comprueba que se ABRE: una copia que no se puede restaurar no es una
+    // copia. Se descifra en memoria con la misma clave y tiene que salir la base entera, byte a
+    // byte, con la cabecera de SQLite. Si no, no se sube y se dice.
+    const vuelta = descifrar(cifrado, cfg.clave);
+    if (!vuelta.equals(crudo) || !vuelta.subarray(0, 16).equals(Buffer.from('SQLite format 3\0'))) {
+      throw new Error('la copia cifrada no se descifra en una base idéntica — no se sube');
+    }
+    resultado.verificada = true;
+    const nombre =`${PREFIJO}relay-${ahora.toISOString().slice(0, 10)}.db.gz.enc`;
     const cx = await b2(cfg);
     await subir(cx, nombre, cifrado);
 

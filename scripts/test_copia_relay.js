@@ -67,6 +67,7 @@ global.fetch = async (url, opt = {}) => {
 
     const r = await hacerCopia(db, { env, ahora: AHORA });
     prueba(r.ok && r.fichero === 'relay/relay-2026-09-30.db.gz.enc', 'con configuración, sube la copia del día', JSON.stringify(r));
+    prueba(r.verificada === true, 'y ANTES de subirla comprueba que se descifra en la base idéntica');
     const subido = bucket.get('relay/relay-2026-09-30.db.gz.enc');
     prueba(subido && !subido.datos.includes(Buffer.from('PACIENTE SECRETO')) && !subido.datos.includes(Buffer.from('600111222')),
       'lo que llega a Backblaze no deja leer ni el nombre ni el teléfono del paciente');
