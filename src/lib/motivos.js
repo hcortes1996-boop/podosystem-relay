@@ -47,15 +47,16 @@
 //
 // Al principio esta lista eran cuatro motivos inventados (Consulta, Estudio, Revisión,
 // Otro). Habría cambiado el formulario de todas las webs generadas después.
+//
+// 01-10-2026: SERVICIOS, no dolencias. La lista anterior (nueve, con «Pie diabético» o «Verruga
+// plantar») hacía que el paciente revelara su problema de salud al relay solo para pedir hora.
+// Francisco: lo que se reserva es el servicio —un estudio biomecánico—, no el síntoma —«me duele
+// la planta del pie»—. La clínica que quiera más servicios los añade en PodoSystem; ese
+// contenido lo decide ella (ver «Contenido configurado por el cliente» en las condiciones).
 const MOTIVOS_FABRICA = [
-  { id: 'primera-consulta', nombre: 'Primera consulta / Revisión general', minutos: null, activo: true },
-  { id: 'quiropodia',       nombre: 'Quiropodia (callos, durezas)',        minutos: null, activo: true },
-  { id: 'una-encarnada',    nombre: 'Uña encarnada (onicocriptosis)',      minutos: null, activo: true },
-  { id: 'biomecanica',      nombre: 'Biomecánica y plantillas',            minutos: null, activo: true },
-  { id: 'verruga-plantar',  nombre: 'Verruga plantar',                     minutos: null, activo: true },
-  { id: 'pie-diabetico',    nombre: 'Pie diabético',                       minutos: null, activo: true },
-  { id: 'cirugia-ungueal',  nombre: 'Cirugía ungueal',                     minutos: null, activo: true },
-  { id: 'ortesis',          nombre: 'Ortesis digitales de silicona',       minutos: null, activo: true },
+  { id: 'primera-consulta', nombre: 'Primera consulta',                    minutos: null, activo: true },
+  { id: 'quiropodia',       nombre: 'Quiropodia',                          minutos: null, activo: true },
+  { id: 'biomecanica',      nombre: 'Estudio biomecánico o de la pisada',  minutos: null, activo: true },
   { id: 'otro',             nombre: 'Otro',                                minutos: null, activo: true },
 ];
 

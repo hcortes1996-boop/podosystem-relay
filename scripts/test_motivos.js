@@ -66,9 +66,13 @@ ok(M.duracionDeMotivo({ duracionSlot: 20 }, 'consulta') === 20, 'con cualquier r
 ok(M.duracionDeMotivo({}, null) === 30, 'la duración por defecto son 30 si no se dice otra cosa');
 ok(M.motivosPublicos({}).length === 0,
   'y la web no recibe ningún motivo: se queda con su formulario de siempre');
-ok(M.MOTIVOS_FABRICA.length === 9,
-  'los de fábrica son los 9 que la web ya enseña hoy, ni uno mas ni uno menos',
+ok(M.MOTIVOS_FABRICA.length === 4,
+  'los de fábrica son los 4 servicios que la web enseña, ni uno mas ni uno menos',
   String(M.MOTIVOS_FABRICA.length));
+// 01-10-2026: servicios, no dolencias. Lo que se reserva es «un estudio biomecánico», no «me
+// duele la planta del pie»; una dolencia en la lista hace al paciente revelar su salud al relay.
+ok(!M.MOTIVOS_FABRICA.some(m => /diab|verruga|encarnada|dolor/i.test(m.nombre)),
+  'ninguno de fábrica nombra una dolencia', M.MOTIVOS_FABRICA.map(m => m.nombre).join(' | '));
 ok(M.MOTIVOS_FABRICA.every(m => m.minutos === null),
   'y todos SIN duracion propia: partir de ellos no le cambia nada a nadie');
 ok(M.MOTIVOS_FABRICA.some(m => m.id === 'quiropodia') && M.MOTIVOS_FABRICA.some(m => m.id === 'otro'),
@@ -99,6 +103,8 @@ console.log('\n── Los de fabrica SON los que la web ya enseña ──');
     const sobran = deFabrica.filter(f => !enLaWeb.includes(f));
     ok(faltan.length === 0, 'ningún motivo de la web falta en los de fábrica', faltan.join(' | '));
     ok(sobran.length === 0, 'ni al revés', sobran.join(' | '));
+    ok(!/Describa brevemente su problema/.test(html), 'las observaciones ya no piden describir el problema');
+    ok(/No incluya información sobre su salud/.test(html), 'y avisan de no poner datos de salud');
   }
 }
 

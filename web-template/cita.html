@@ -1075,12 +1075,12 @@
              atenderle — y si solo hay uno, ni se le pregunta. -->
         <div id="step-0" class="booking-step">
           <div id="motivo-paso0-wrap" style="display:none;margin-bottom:18px">
-            <h2 style="margin-bottom:10px">¿A qué viene?</h2>
+            <h2 style="margin-bottom:10px">¿Qué servicio necesita?</h2>
             <select id="motivo-paso0" style="width:100%;padding:12px;border:1px solid #d9e2ec;border-radius:10px;font-size:.95rem;background:#fff">
-              <option value="" disabled selected>Seleccione el motivo…</option>
+              <option value="" disabled selected>Seleccione el servicio…</option>
             </select>
             <p style="font-size:.78rem;color:#94a3b8;margin:6px 0 0">
-              Las horas libres cambian según el motivo: unos servicios necesitan más tiempo que otros.
+              Las horas libres cambian según el servicio: unos necesitan más tiempo que otros.
             </p>
           </div>
 
@@ -1116,13 +1116,13 @@
                el motivo se pregunta al final, como texto. -->
           <div id="motivo-previo-wrap" style="display:none;margin-bottom:14px">
             <label for="motivo-previo" style="display:block;font-size:.85rem;font-weight:600;color:var(--navy);margin-bottom:6px">
-              ¿A qué viene? <span style="color:#e74c3c">*</span>
+              ¿Qué servicio necesita? <span style="color:#e74c3c">*</span>
             </label>
             <select id="motivo-previo" style="width:100%;padding:11px 12px;border:1px solid #d9e2ec;border-radius:10px;font-size:.92rem;background:#fff">
-              <option value="" disabled selected>Seleccione el motivo…</option>
+              <option value="" disabled selected>Seleccione el servicio…</option>
             </select>
             <p style="font-size:.78rem;color:#94a3b8;margin:6px 0 0">
-              Las horas libres cambian según el motivo: unos servicios necesitan más tiempo que otros.
+              Las horas libres cambian según el servicio: unos necesitan más tiempo que otros.
             </p>
           </div>
 
@@ -1167,23 +1167,23 @@
               </div>
             </div>
             <div class="form-group">
-              <label for="motivo">Motivo de consulta <span class="required">*</span></label>
+              <label for="motivo">¿Qué servicio necesita? <span class="required">*</span></label>
               <select id="motivo" name="motivo">
-                <option value="" disabled selected>Seleccione el motivo…</option>
-                <option value="Primera consulta">Primera consulta / Revisión general</option>
-                <option value="Quiropodia">Quiropodia (callos, durezas)</option>
-                <option value="Uña encarnada">Uña encarnada (onicocriptosis)</option>
-                <option value="Biomecánica">Biomecánica y plantillas</option>
-                <option value="Verruga plantar">Verruga plantar</option>
-                <option value="Pie diabético">Pie diabético</option>
-                <option value="Cirugía ungueal">Cirugía ungueal</option>
-                <option value="Ortesis">Ortesis digitales de silicona</option>
+                <option value="" disabled selected>Seleccione el servicio…</option>
+                <!-- Servicios, no dolencias (01-10-2026). La lista anterior incluía «Pie diabético»
+                     y las observaciones pedían describir el problema: el formulario invitaba al paciente a
+                     escribir datos de salud en un servidor que no los necesita para dar la cita.
+                     La clínica que quiera otros servicios los configura en PodoSystem. -->
+                <option value="Primera consulta">Primera consulta</option>
+                <option value="Quiropodia">Quiropodia</option>
+                <option value="Estudio biomecánico">Estudio biomecánico o de la pisada</option>
                 <option value="Otro">Otro</option>
               </select>
             </div>
             <div class="form-group">
-              <label for="observaciones">Observaciones <span class="optional">(opcional)</span></label>
-              <textarea id="observaciones" name="observaciones" rows="2" placeholder="Describa brevemente su problema…"></textarea>
+              <label for="observaciones">¿Algo que debamos saber para su cita? <span class="optional">(opcional)</span></label>
+              <textarea id="observaciones" name="observaciones" rows="2" placeholder="Por ejemplo: prefiero que me llamen por la tarde"></textarea>
+              <p style="font-size:.78rem;color:#94a3b8;margin:6px 0 0">No incluya información sobre su salud: se la preguntará su podólogo en la consulta.</p>
             </div>
             <div class="form-privacy">
               <input type="checkbox" id="privacidad" name="privacidad">
@@ -1248,7 +1248,7 @@
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
           </div>
           <h3>Introduce tus datos</h3>
-          <p>Nombre, teléfono y motivo de consulta. Recibirás la confirmación con tu número de referencia.</p>
+          <p>Nombre, teléfono y el servicio que necesitas. Recibirás la confirmación con tu número de referencia.</p>
         </div>
 
         <div class="step-card fade-up" style="transition-delay:.3s">
@@ -1675,7 +1675,7 @@
       if (grupoFinal) grupoFinal.style.display = 'none';
       motivoPreguntadoAntes = true;
 
-      sel.innerHTML = '<option value="" disabled selected>Seleccione el motivo…</option>'
+      sel.innerHTML = '<option value="" disabled selected>Seleccione el servicio…</option>'
         + catalogoMotivos.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.nombre)}</option>`).join('');
 
       sel.addEventListener('change', () => {
@@ -1765,7 +1765,7 @@
       if (motivosPintados) return;
       motivosPintados = true;
 
-      sel.innerHTML = '<option value="" disabled selected>Seleccione el motivo…</option>'
+      sel.innerHTML = '<option value="" disabled selected>Seleccione el servicio…</option>'
         + motivos.map(m => `<option value="${m.id}">${m.nombre}</option>`).join('');
 
       // El desplegable del formulario final deja de preguntarse: ya se ha contestado.
@@ -2046,7 +2046,7 @@
       const CAMPOS = {
         nombre:     'Nombre completo',
         telefono:   'Teléfono',
-        motivo:     'Motivo de consulta',
+        motivo:     'Servicio que necesita',
         privacidad: 'Aceptación de la política de privacidad (RGPD)',
       };
       const errores = [];
