@@ -5,15 +5,20 @@
  *   Protegido por REGISTRO_SECRET (variable de entorno)
  */
 
+const crypto       = require('crypto');
 const router       = require('express').Router();
 const { genId, genApiKey } = require('../db');
 
 router.post('/registro-clinica', (req, res) => {
   const { nombre, registroSecret } = req.body;
 
-  // Verificar el secreto de registro
-  const secretEsperado = process.env.REGISTRO_SECRET;
-  if (!secretEsperado || registroSecret !== secretEsperado) {
+  // Verificar el secreto de registro. En tiempo constante, como el panel (01-10-2026): con `!==`
+  // el tiempo de respuesta delata cuántos caracteres iniciales acierta quien prueba. Y con un
+  // mínimo de longitud: un secreto corto o vacío en el servidor deja la puerta cerrada.
+  const secretEsperado = process.env.REGISTRO_SECRET || '';
+  const dado = typeof registroSecret === 'string' ? registroSecret : '';
+  const hash = (s) => crypto.createHash('sha256').update(s).digest();
+  if (secretEsperado.length < 16 || !dado || !crypto.timingSafeEqual(hash(dado), hash(secretEsperado))) {
     return res.status(403).json({ ok: false, error: 'Secreto de registro incorrecto' });
   }
 
