@@ -40,6 +40,8 @@
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 const DIAS_CORTESIA = 30;
+// La duración de la prueba: la misma que `TRIAL_DIAS` en routes/trials.js (lo fija la prueba).
+const DIAS_PRUEBA = 60;
 const RESERVA_DIAS_TRAS_CITA = 7;   // una reserva vive hasta su cita + 7 días (ver el paso 3)
 const INTERVALO_MS = 6 * 60 * 60 * 1000;   // cuatro veces al día: fechas de días, no de minutos
 
@@ -72,7 +74,15 @@ function finDePrueba(db, clinicaId) {
     SELECT MAX(ti.fin) AS fin
       FROM trials t JOIN trial_instalaciones ti ON ti.trialId = t.id
      WHERE t.clinicaId = ?`).get(clinicaId);
-  return r && r.fin ? r.fin : null;
+  if (r && r.fin) return r.fin;
+  // Sin enlace con su prueba (01-10-2026: `pbdaJ0ekdf`, que ningún trial apunta). Antes salía
+  // «sin fecha» y se saltaba PARA SIEMPRE: ni se cerraba ni se borraba, contra lo que promete el
+  // Anexo C. Una web de prueba no puede vivir más que la prueba, así que su alta más la duración
+  // de la prueba es un fin seguro. Si se le dieron más días desde el panel, cerrar la página es
+  // reversible (se reabre sola en la siguiente pasada en cuanto la prueba enlazada lo diga).
+  const c = db.prepare('SELECT createdAt FROM clinicas WHERE id = ?').get(clinicaId);
+  const alta = c && Date.parse(c.createdAt);
+  return Number.isFinite(alta) ? new Date(alta + DIAS_PRUEBA * DIA_MS).toISOString() : null;
 }
 
 /**
@@ -227,4 +237,4 @@ function iniciarLimpieza(db) {
   setInterval(pasada, INTERVALO_MS).unref();
 }
 
-module.exports = { revisarClinicas, iniciarLimpieza, ultimo, DIAS_CORTESIA, RESERVA_DIAS_TRAS_CITA };
+module.exports = { revisarClinicas, iniciarLimpieza, ultimo, DIAS_CORTESIA, DIAS_PRUEBA, RESERVA_DIAS_TRAS_CITA };

@@ -147,6 +147,27 @@ try {
   inf = revisarClinicas(db, { ahora: HOY });
   prueba(inf.accesosAdminPurgados === 1 && db.prepare('SELECT COUNT(*) n FROM admin_accesos').get().n === 1,
     'se purgan los accesos de hace más de 90 días, y se conservan los recientes');
+
+  console.log('\n── Una web de prueba sin enlace con su prueba (pbdaJ0ekdf, 01-10-2026) ──');
+  // Antes salía «sin fecha» y se saltaba para siempre: ni se cerraba ni se borraba.
+  const huerfana = (id, altaHaceDias) => {
+    clinica(id, 'trial');
+    db.prepare('UPDATE clinicas SET createdAt = ? WHERE id = ?').run(dias(-altaHaceDias).toISOString(), id);
+  };
+  huerfana('HUERF_VIEJA', 70);   // alta hace 70 días: su prueba acabó hace 10
+  huerfana('HUERF_NUEVA', 10);   // alta hace 10 días: aún en plazo
+  huerfana('HUERF_MUY_VIEJA', 95); // acabó hace 35: pasado el mes de cortesía
+  inf = revisarClinicas(db, { ahora: HOY });
+  prueba(!inf.sinFecha.includes('HUERF_VIEJA') && fila('HUERF_VIEJA').activa === 0,
+    'su prueba se da por acabada a los 60 días del alta: la página se cierra', JSON.stringify(fila('HUERF_VIEJA')));
+  prueba(fila('HUERF_NUEVA').activa === 1, 'la que lleva 10 días sigue abierta');
+  inf = revisarClinicas(db, { ahora: HOY });   // como todas: una pasada cierra, la siguiente borra
+  prueba(inf.aBorrar.some(d => d.clinicaId === 'HUERF_MUY_VIEJA'),
+    'y pasado el mes de cortesía entra en el borrado como cualquier otra', JSON.stringify(inf.aBorrar.map(d => d.clinicaId)));
+  const TRIAL = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'trials.js'), 'utf8');
+  const { DIAS_PRUEBA } = require('../src/lib/limpieza-clinicas');
+  prueba(new RegExp(`const TRIAL_DIAS = ${DIAS_PRUEBA};`).test(TRIAL),
+    `la duración que usa la limpieza (${DIAS_PRUEBA}) es la de la prueba (TRIAL_DIAS)`);
 } finally {
   try { db.close(); } catch (_) {}
   for (const f of [TMP, TMP + '-wal', TMP + '-shm']) { try { fs.unlinkSync(f); } catch (_) {} }
