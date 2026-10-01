@@ -38,17 +38,16 @@ async function ultimaDescarga() {
   }
 
   try {
-    const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'podosystem-relay' },
-      signal: AbortSignal.timeout(8000),
-    });
-    if (!res.ok) throw new Error(`GitHub respondió ${res.status}`);
-
-    const rel = await res.json();
-    const exe = (rel.assets || []).find(a => /\.exe$/i.test(a.name));
-    if (!exe) throw new Error('el último release no tiene ningún .exe');
-
-    _cache = { url: exe.browser_download_url, version: rel.tag_name, en: Date.now() };
+    let r;
+    try {
+      r = await porLaApi();
+    } catch (eApi) {
+      // La API sin token admite 60 consultas por hora y por IP, y la IP de Railway es
+      // compartida: desde el traslado a Ámsterdam (30-09-2026) respondía 403 y la demo se
+      // quedó sin descarga. La web normal no cuenta contra ese cupo.
+      try { r = await porLaWeb(); } catch (eWeb) { throw new Error(`${eApi.message}; respaldo: ${eWeb.message}`); }
+    }
+    _cache = { ...r, en: Date.now() };
     return { url: _cache.url, version: _cache.version };
   } catch (e) {
     // Si GitHub no responde se devuelve lo último que se supo, aunque esté caducado: una URL
@@ -58,4 +57,36 @@ async function ultimaDescarga() {
   }
 }
 
-module.exports = { ultimaDescarga, REPO };
+async function porLaApi() {
+  const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'podosystem-relay' },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`GitHub respondió ${res.status}`);
+
+  const rel = await res.json();
+  const exe = (rel.assets || []).find(a => /\.exe$/i.test(a.name));
+  if (!exe) throw new Error('el último release no tiene ningún .exe');
+  return { url: exe.browser_download_url, version: rel.tag_name };
+}
+
+/**
+ * Sin API: `github.com/<repo>/releases/latest` redirige a `/releases/tag/vX.Y.Z`. El nombre
+ * del EXE sale de la etiqueta porque electron-builder lo forma así (`PodoSystem_v${version}.exe`).
+ */
+async function porLaWeb() {
+  const res = await fetch(`https://github.com/${REPO}/releases/latest`, {
+    redirect: 'manual',
+    headers: { 'User-Agent': 'podosystem-relay' },
+    signal: AbortSignal.timeout(8000),
+  });
+  const destino = res.headers.get('location') || '';
+  const m = destino.match(/\/releases\/tag\/(v\d+\.\d+\.\d+)$/);
+  if (!m) throw new Error(`la web no redirigió a una versión (${res.status})`);
+  const tag = m[1];
+  return { url: `https://github.com/${REPO}/releases/download/${tag}/PodoSystem_${tag}.exe`, version: tag };
+}
+
+function _olvidar() { _cache = null; }
+
+module.exports = { ultimaDescarga, REPO, _olvidar };
