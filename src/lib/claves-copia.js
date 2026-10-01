@@ -127,7 +127,8 @@ async function claveDeClinica(db, clinicaId, { env = process.env, fetchImpl = fe
     accountId,
     capabilities: CAPACIDADES_CLINICA,
     keyName: `clinica-${clinicaId}`.replace(/[^A-Za-z0-9-]/g, '-').slice(0, 100),
-    bucketIds: [cfg.bucketId],
+    // En la API v3 es `bucketId` (uno); `bucketIds` es de la v4 y la v3 lo rechaza con un 400.
+    bucketId: cfg.bucketId,
     namePrefix: prefijo,
   });
   if (!k || !k.applicationKeyId || !k.applicationKey) throw new Error('Backblaze no devolvió la clave');

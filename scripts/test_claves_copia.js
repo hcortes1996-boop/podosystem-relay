@@ -82,7 +82,7 @@ const pedir = (cuerpo) => fetchReal(`http://127.0.0.1:${PORT}/api/copias/credenc
     prueba(r1.status === 200 && r1.cuerpo.keyId === 'clave-1' && r1.cuerpo.appKey === 'SECRETO-1', 'recibe su clave', JSON.stringify(r1.cuerpo));
     prueba(r1.cuerpo.prefijo === 'CLIN_A/' && r1.cuerpo.bucket === 'podosystem-backups-2026', 'con su carpeta y el bucket');
     const crear = llamadas.find(l => l.op === 'b2_create_key').cuerpo;
-    prueba(crear.namePrefix === 'CLIN_A/' && JSON.stringify(crear.bucketIds) === '["bucket-123"]' && crear.accountId === 'cuenta-1',
+    prueba(crear.namePrefix === 'CLIN_A/' && crear.bucketId === 'bucket-123' && crear.accountId === 'cuenta-1',
       'Backblaze la crea limitada al bucket y a SU carpeta', JSON.stringify(crear));
     prueba(!crear.capabilities.some(c => /Keys|Buckets$|Retention|bypass/i.test(c) && c !== 'listBuckets'),
       'sin permisos de gestión: ni crear claves, ni tocar el bucket, ni retenciones', crear.capabilities.join(','));

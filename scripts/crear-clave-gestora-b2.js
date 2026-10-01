@@ -44,21 +44,27 @@ async function autorizar(keyId, appKey) {
 (async () => {
   const mk = process.env.B2_MASTER_KEY_ID, ma = process.env.B2_MASTER_APP_KEY;
   if (!mk || !ma) { console.log('❌ Falta B2_MASTER_KEY_ID / B2_MASTER_APP_KEY en el entorno (setup-tokens.sh).'); process.exit(1); }
-  if (fs.existsSync(SALIDA)) { console.log(`❌ Ya existe ${SALIDA}: no se crea otra gestora. Bórralo antes si de verdad quieres otra.`); process.exit(1); }
-
   const maestra = await autorizar(mk, ma);
   const { buckets } = await maestra.api('b2_list_buckets', { accountId: maestra.accountId, bucketName: BUCKET });
   if (!buckets || !buckets.length) throw new Error('No se encuentra el bucket ' + BUCKET);
   const bucketId = buckets[0].bucketId;
   console.log(`✅ Bucket ${BUCKET}: COPIAS_BUCKET_ID = ${bucketId}`);
 
-  const g = await maestra.api('b2_create_key', {
+  // Si ya existe (una pasada anterior que falló en la comprobación), se reutiliza: no se crea otra.
+  let g;
+  if (fs.existsSync(SALIDA)) {
+    const t = fs.readFileSync(SALIDA, 'utf8');
+    g = { applicationKeyId: (t.match(/RELAY_B2_GESTOR_KEY_ID=(.+)/) || [])[1], applicationKey: (t.match(/RELAY_B2_GESTOR_APP_KEY=(.+)/) || [])[1] };
+    console.log('↻ Se reutiliza la gestora ya guardada en ' + SALIDA);
+  } else {
+  g = await maestra.api('b2_create_key', {
     accountId: maestra.accountId,
     capabilities: ['listKeys', 'writeKeys', 'deleteKeys'],
     keyName: 'relay-gestor-claves-copias',
   });
   fs.writeFileSync(SALIDA, `RELAY_B2_GESTOR_KEY_ID=${g.applicationKeyId}\nRELAY_B2_GESTOR_APP_KEY=${g.applicationKey}\nCOPIAS_BUCKET_ID=${bucketId}\n`, { mode: 0o600 });
   console.log(`✅ Clave gestora creada y guardada en ${SALIDA} (keyId ${g.applicationKeyId.length} caracteres, clave ${g.applicationKey.length})`);
+  }
 
   // ── Comprobar que la gestora sirve para lo que se quiere ──
   const gestora = await autorizar(g.applicationKeyId, g.applicationKey);
@@ -66,7 +72,7 @@ async function autorizar(keyId, appKey) {
     const prueba = await gestora.api('b2_create_key', {
       accountId: gestora.accountId,
       capabilities: ['listBuckets', 'listFiles', 'readFiles', 'writeFiles', 'deleteFiles'],
-      keyName: 'prueba-gestor', bucketIds: [bucketId], namePrefix: 'prueba-gestor/',
+      keyName: 'prueba-gestor', bucketId, namePrefix: 'prueba-gestor/',
     });
     await gestora.api('b2_delete_key', { applicationKeyId: prueba.applicationKeyId });
     console.log('✅ La gestora crea una clave de clínica limitada a su carpeta, y la borra. Todo listo.');
