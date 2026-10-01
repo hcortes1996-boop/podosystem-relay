@@ -70,6 +70,9 @@ const BUENO = { licenseKey: LICENCIA, hardwareId: HW, email: 'destino@ejemplo.te
   r = await enviar({ ...BUENO, hardwareId: 'otro-equipo-distinto' });
   ok(r.status === 403 && r.body.error === 'hardware_mismatch',
     'licencia copiada a otro equipo → 403 hardware_mismatch', JSON.stringify(r.body));
+  r = await enviar({ ...BUENO, hardwareId: undefined });
+  ok(r.status === 403 && r.body.error === 'hardware_mismatch',
+    'y sin decir el equipo, tampoco', JSON.stringify(r.body));
 
   db.prepare("UPDATE licencias SET estado='blocked' WHERE licenseKey=?").run(LICENCIA);
   r = await enviar(BUENO);
@@ -151,6 +154,10 @@ const BUENO = { licenseKey: LICENCIA, hardwareId: HW, email: 'destino@ejemplo.te
   r = await pedirKey({ licenseKey: LICENCIA, hardwareId: 'otro-equipo' });
   ok(r.status === 403 && r.body.error === 'hardware_mismatch',
     'licencia copiada a otro equipo → 403 (una licenseKey robada no basta)', JSON.stringify(r.body));
+  // 01-10-2026: sin decir el equipo, la comprobación se saltaba y bastaba con la licenseKey.
+  r = await pedirKey({ licenseKey: LICENCIA });
+  ok(r.status === 403 && r.body.error === 'hardware_mismatch',
+    'y SIN decir el equipo, tampoco (antes se saltaba la comprobación)', JSON.stringify(r.body));
 
   db.prepare("UPDATE licencias SET estado='blocked' WHERE licenseKey=?").run(LICENCIA);
   r = await pedirKey({ licenseKey: LICENCIA, hardwareId: HW });

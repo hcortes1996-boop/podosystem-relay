@@ -99,6 +99,9 @@ function revisarClinicas(db, { ahora = new Date(), modo = process.env.LIMPIEZA_M
     fecha: iso, modo: aplicar ? 'aplicar' : 'ensayo',
     pruebasCerradas: [], pruebasReabiertas: [], relojIniciado: [], relojAnulado: [],
     aBorrar: [], borradas: [], sinFecha: [], errores: [],
+    // Las claves de Backblaze de las clínicas borradas: se revocan DESPUÉS, fuera de la
+    // transacción (es una llamada de red). Se apunta el keyId antes de borrar su fila.
+    clavesARevocar: [],
   };
 
   // ── 0. El reloj de las licencias ─────────────────────────────────────────
@@ -164,6 +167,9 @@ function revisarClinicas(db, { ahora = new Date(), modo = process.env.LIMPIEZA_M
 
       if (!aplicar) { informe.aBorrar.push(detalle); continue; }
 
+      let claveB2 = null;
+      try { claveB2 = db.prepare('SELECT keyId FROM claves_copia WHERE clinicaId = ?').get(c.id); } catch (_) {}
+
       db.transaction(() => {
         for (const tabla of tablas) {
           if (SOLO_APUNTAN.has(tabla)) db.prepare(`UPDATE ${tabla} SET clinicaId = NULL WHERE clinicaId = ?`).run(c.id);
@@ -172,6 +178,7 @@ function revisarClinicas(db, { ahora = new Date(), modo = process.env.LIMPIEZA_M
         db.prepare('DELETE FROM clinicas WHERE id = ?').run(c.id);
       })();
       informe.borradas.push(detalle);
+      if (claveB2 && claveB2.keyId) informe.clavesARevocar.push({ clinicaId: c.id, keyId: claveB2.keyId });
     } catch (e) {
       informe.errores.push({ clinicaId: c.id, error: e.message });
     }
@@ -220,6 +227,12 @@ function iniciarLimpieza(db) {
     try {
       ultimoInforme = revisarClinicas(db);
       console.log(resumen(ultimoInforme));
+      const inf = ultimoInforme;
+      for (const k of inf.clavesARevocar) {
+        require('./claves-copia').revocarPorKeyId(k.keyId).then(r => {
+          console.log(`[limpieza] clave de copias de ${k.clinicaId}: ${r.revocada ? 'revocada en Backblaze' : 'NO revocada — ' + r.motivo}`);
+        });
+      }
       for (const d of ultimoInforme.aBorrar) {
         console.log(`[limpieza] ENSAYO — borraría ${d.clinicaId} (${d.motivo}, fin ${d.finServicio}): ${JSON.stringify(d.filas)}`);
       }

@@ -125,7 +125,9 @@ router.post('/recuperacion/enviar-codigo', limitePorIP, limitePorLicencia, async
 
   // Mismo criterio que /licencias/verificar: si la licencia ya tiene hardware registrado,
   // tiene que coincidir. Evita que quien copie una licenseKey pida codigos desde otro PC.
-  if (lic.hardwareId && hardwareId && lic.hardwareId !== hardwareId) {
+  // Si la licencia está atada a un equipo, decirlo es OBLIGATORIO (01-10-2026): antes, una petición
+  // sin `hardwareId` se saltaba la comprobación y bastaba con la licenseKey copiada.
+  if (lic.hardwareId && lic.hardwareId !== hardwareId) {
     return res.status(403).json({ ok: false, error: 'hardware_mismatch' });
   }
 
@@ -200,7 +202,9 @@ router.post('/recuperacion/api-key', limiteApiKeyPorIP, limiteApiKeyPorLicencia,
   if (!lic) return res.status(404).json({ ok: false, error: 'Licencia no encontrada' });
   if (lic.estado === 'blocked') return res.status(403).json({ ok: false, error: 'Licencia bloqueada' });
 
-  if (lic.hardwareId && hardwareId && lic.hardwareId !== hardwareId) {
+  // Si la licencia está atada a un equipo, decirlo es OBLIGATORIO (01-10-2026): antes, una petición
+  // sin `hardwareId` se saltaba la comprobación y bastaba con la licenseKey copiada.
+  if (lic.hardwareId && lic.hardwareId !== hardwareId) {
     return res.status(403).json({ ok: false, error: 'hardware_mismatch' });
   }
 
