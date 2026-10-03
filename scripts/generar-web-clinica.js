@@ -69,6 +69,18 @@ const salida = path.resolve(arg('salida', path.join(process.cwd(), `sitio-${clin
 const vars = construirVars(datos);
 const ficheros = construirFicheros(vars);
 
+// --menu-web: la clínica tiene web propia y esta es solo su página de citas. El menú y el pie
+// llevan a sus páginas, y no se genera el `_redirects` que manda la portada a /cita.html (le
+// quitaría la portada). Ver `conMenuDeWeb` en src/netlify-deploy.js.
+if (process.argv.includes('--menu-web')) {
+  const { conMenuDeWeb } = require('../src/netlify-deploy');
+  const r = conMenuDeWeb(String(ficheros['cita.html']));
+  if (r.cambios < 4) { console.error(`❌ --menu-web: la plantilla ha cambiado (${r.cambios} de 4 cambios). Revisa conMenuDeWeb.`); process.exit(1); }
+  ficheros['cita.html'] = Buffer.from(r.html);
+  delete ficheros['_redirects'];
+  console.log('🔗 Menú y pie de la página de citas → las páginas de la web de la clínica');
+}
+
 fs.mkdirSync(salida, { recursive: true });
 let bytes = 0;
 for (const [ruta, buf] of Object.entries(ficheros)) {

@@ -234,7 +234,32 @@ async function redeployClientSite({ clinicaId, nombre, ciudad = '', direccion = 
   if (!ok) throw new Error(`Netlify redeploy HTTP ${status}: ${JSON.stringify(data)}`);
 }
 
-module.exports = { deployClientSite, redeployClientSite, construirVars, construirFicheros };
+/**
+ * Para la clínica que tiene WEB PROPIA (portada, servicios, podólogo, localización) y usa esta
+ * página solo para pedir cita: el menú y el pie llevan a sus páginas, no a las secciones de esta.
+ *
+ * 03-10-2026, web de Francisco: «si le doy a Inicio se queda en la página de citas, no se
+ * relaciona con mi web». La plantilla es de una sola página —pensada para quien no tiene web— y
+ * su menú apunta a #hero, #como-funciona… Lo usa `scripts/generar-web-clinica.js --menu-web`.
+ * Si la plantilla cambia esos bloques, `test_plantilla_web.js` lo dice.
+ */
+const MENU_WEB = [
+  ['index.html', 'Inicio'], ['servicios.html', 'Servicios'], ['podologo.html', 'El Podólogo'],
+  ['localizacion.html', 'Localización'],
+];
+function conMenuDeWeb(html) {
+  const enlaces = (sangria, conClase) => MENU_WEB.map(([h, t]) => `${sangria}<a href="${h}">${t}</a>`).join('\n') +
+    `\n${sangria}<a href="#pedir-cita"${conClase ? ' class="nav-cta"' : ''}>Pedir Cita</a>`;
+  let cambios = 0;
+  const out = html
+    .replace(/(<nav class="nav-menu"[^>]*>\n)[\s\S]*?(\n\s*<\/nav>)/, (_, a, b) => { cambios++; return a + enlaces('        ', true) + b; })
+    .replace(/(<nav class="footer-nav"[^>]*>\n)[\s\S]*?(\n\s*<\/nav>)/, (_, a, b) => { cambios++; return a + enlaces('        ', false) + b; })
+    .replace(/<a href="#hero" class="header-logo"/g, () => { cambios++; return '<a href="index.html" class="header-logo"'; })
+    .replace(/<a href="#hero" aria-label="Inicio">/g, () => { cambios++; return '<a href="index.html" aria-label="Inicio">'; });
+  return { html: out, cambios };
+}
+
+module.exports = { deployClientSite, redeployClientSite, construirVars, construirFicheros, conMenuDeWeb };
 
 // `applyPlaceholders` lo necesita también `routes/citas-web.js`, que sirve la página desde el
 // propio relay para los trials (decisión ② del 13-09-2026). Va por `__test__` de abajo y no por
