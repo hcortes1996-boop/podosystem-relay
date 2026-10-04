@@ -50,7 +50,16 @@ const fs      = require('fs');
 const path    = require('path');
 const QRCode  = require('qrcode');
 
-const { construirVars, __test__ } = require('../netlify-deploy');
+const { construirVars, conMenuDeWeb, __test__ } = require('../netlify-deploy');
+
+/** ¿Tiene la clínica alguna licencia que no esté muerta? Mismo criterio que la limpieza. */
+const LICENCIA_MUERTA = new Set(['expired', 'revoked', 'revocada', 'cancelada', 'cancelled', 'blocked', 'trial']);
+function conLicenciaViva(db, clinicaId) {
+  try {
+    return db.prepare('SELECT estado FROM licencias WHERE clinicaId = ?').all(clinicaId)
+      .some(l => !LICENCIA_MUERTA.has(String(l.estado || '').toLowerCase()));
+  } catch (_) { return false; }   // ante la duda, el cartel: decir «prueba» a un trial es lo seguro
+}
 const applyPlaceholders = __test__.applyPlaceholders;
 
 const TEMPLATE_DIR = path.join(__dirname, '..', '..', 'web-template');
@@ -214,7 +223,9 @@ router.get('/cita/:clinicaId', (req, res) => {
   // cancela una suscripción (punto 26). Una clínica dada de baja no puede seguir ofreciendo
   // huecos.
   const clinica = req.db
-    .prepare('SELECT id, nombre, ciudad, direccion, telefono FROM clinicas WHERE id = ? AND activa = 1')
+    // `*` y no la lista de columnas: `menuWeb` llegó el 04-10-2026, y una base sin ella (una
+    // prueba que crea la tabla a mano, una restauración vieja) no puede tumbar la página.
+    .prepare('SELECT * FROM clinicas WHERE id = ? AND activa = 1')
     .get(clinicaId);
 
   if (!clinica) {
@@ -232,8 +243,26 @@ router.get('/cita/:clinicaId', (req, res) => {
   });
 
   let html = applyPlaceholders(PLANTILLA, vars);
-  html = rutasAbsolutas(html);
-  html = marcarComoPrueba(html, clinica.id);
+
+  // ── Las clínicas de PAGO también (04-10-2026) ──────────────────────────────
+  //
+  // Hasta aquí esto era solo la web de los trials. Ahora la sirve también a las clínicas de pago,
+  // a través de SU Netlify: un `_redirects` con `/cita  <relay>/cita/<id>  200!` hace que Netlify
+  // pida la página aquí y la entregue con su dominio. Así cualquier cambio en la plantilla llega a
+  // todas las webs al desplegar el relay, sin subir carpetas ni gastar créditos de Netlify.
+  //
+  //   · Con licencia viva NO lleva el cartel de prueba ni el `noindex`: les diría a sus pacientes
+  //     que la clínica está de prueba (el fallo del QR del 20-09).
+  //   · Con `menuWeb` la clínica tiene web propia: el menú lleva a sus páginas y los estilos e
+  //     imágenes son los SUYOS (rutas relativas, que resuelven contra su dominio). Se ve igual que
+  //     la que tenía subida a mano.
+  const dePago = conLicenciaViva(req.db, clinica.id);
+  if (clinica.menuWeb) {
+    html = conMenuDeWeb(html).html;
+  } else {
+    html = rutasAbsolutas(html);
+  }
+  if (!dePago) html = marcarComoPrueba(html, clinica.id);
 
   // Sin caché: el horario y los datos de la clínica cambian, y la página se pide pocas veces.
   // Los assets, que son el peso de verdad, sí van cacheados arriba.

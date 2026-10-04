@@ -874,6 +874,8 @@ router.put('/api/clinicas/:id/datos', authAdmin, (req, res) => {
       vals.push(req.body[k]?.trim?.() || req.body[k] || null);
     }
   }
+  // Número, no texto: el bucle de arriba convertiría un 0 en null.
+  if ('menuWeb' in req.body) { sets.push('menuWeb = ?'); vals.push(req.body.menuWeb ? 1 : 0); }
   if (sets.length === 0) {
     return res.status(400).json({ ok: false, error: 'Nada que actualizar' });
   }

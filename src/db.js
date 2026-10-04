@@ -382,6 +382,9 @@ function initDB() {
   // una clínica creada por un trial sería indistinguible de una de pago, y no habría forma de
   // limpiar las inventadas. Por defecto 'manual' para no reescribir las que ya existen.
   try { db.exec("ALTER TABLE clinicas ADD COLUMN fuente TEXT DEFAULT 'manual'"); } catch (_) {}
+  // La clínica tiene web propia y su página de citas, servida por el relay a través de su Netlify,
+  // lleva SU menú y SUS estilos (04-10-2026). Ver routes/citas-web.js.
+  try { db.exec('ALTER TABLE clinicas ADD COLUMN menuWeb INTEGER DEFAULT 0'); } catch (_) {}
 
   // v2.2+ — Multi-podólogo (Plan Red web)
   try { db.exec('ALTER TABLE reservas ADD COLUMN podologoId TEXT'); } catch (_) {}
