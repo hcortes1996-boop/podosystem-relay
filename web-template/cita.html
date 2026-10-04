@@ -1039,11 +1039,11 @@
         <div class="hero-cita__trust">
           <div class="trust-item">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-            Confirmación por WhatsApp
+            Reserva al momento
           </div>
           <div class="trust-item">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
-            Sin lista de espera
+            Sin llamadas
           </div>
           <div class="trust-item">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
@@ -1269,20 +1269,9 @@
   <div class="horario-strip" aria-label="Horario de atención">
     <div class="container">
       <div class="horario-strip__inner">
-        <div class="horario-item fade-up">
-          <div class="horario-item__day">Lunes — Viernes</div>
-          <div class="horario-item__time">9:00 — 14:00</div>
-        </div>
-        <div class="horario-divider"></div>
-        <div class="horario-item fade-up" style="transition-delay:.1s">
-          <div class="horario-item__day">Lunes — Viernes</div>
-          <div class="horario-item__time">16:00 — 19:30</div>
-        </div>
-        <div class="horario-divider"></div>
-        <div class="horario-item fade-up" style="transition-delay:.2s">
-          <div class="horario-item__day">Sábados y festivos</div>
-          <div class="horario-item__time" style="color:var(--muted);font-size:1.1rem">Cerrado</div>
-        </div>
+        <!-- El horario REAL de la clínica (04-10-2026): antes era un 9:00—14:00 / 16:00—19:30 fijo
+             para todas. Lo pinta src/lib/horario-web.js desde el horario que configura en PodoSystem. -->
+        {{CLINICA_HORARIO_HTML}}
         <div class="horario-divider"></div>
         <div class="horario-item fade-up" style="transition-delay:.3s">
           <div class="horario-item__day">Teléfono</div>
@@ -1310,23 +1299,25 @@
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>
           </div>
           <h3>Atención personalizada</h3>
-          <p>Cada paciente recibe un tratamiento adaptado a sus necesidades específicas, sin prisas y con total dedicación.</p>
+          <p>Cada paciente recibe un tratamiento adaptado a sus necesidades, sin prisas.</p>
         </div>
 
         <div class="why-card fade-up" style="transition-delay:.15s">
           <div class="why-card__icon">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/><circle cx="8" cy="10" r="1" fill="currentColor"/><circle cx="12" cy="8" r="1" fill="currentColor"/><circle cx="16" cy="10" r="1" fill="currentColor"/><path d="M8 10 Q10 7 12 8 Q14 9 16 10" stroke-width="1.5"/></svg>
           </div>
-          <h3>Tecnología avanzada</h3>
-          <p>Equipamiento de última generación y gestión digital con PodoSystem para el seguimiento preciso de su historial clínico.</p>
+          <!-- Textos neutros (04-10-2026): los anteriores hablaban de equipamiento y de resultados,
+               afirmaciones de publicidad sanitaria en boca de una clínica que no las escribió. -->
+          <h3>Cita cuando le venga bien</h3>
+          <p>Elija día y hora desde el móvil, a cualquier hora, y su cita queda reservada al momento.</p>
         </div>
 
         <div class="why-card fade-up" style="transition-delay:.3s">
           <div class="why-card__icon">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
           </div>
-          <h3>Experiencia y dedicación</h3>
-          <p>Cuidando la salud podológica de los vecinos de {{CLINICA_CIUDAD}} y comarca con resultados probados.</p>
+          <h3>Cerca de usted</h3>
+          <p>Cuidando la salud de los pies de los vecinos de {{CLINICA_CIUDAD}} y alrededores.</p>
         </div>
       </div>
     </div>
@@ -1353,8 +1344,9 @@
           </a>
         </div>
 
+        <!--WHATSAPP-->
         <div class="contacto-block fade-up" style="transition-delay:.15s">
-          <a href="https://wa.me/34{{CLINICA_TELEFONO_RAW}}?text=Hola%2C%20me%20gustar%C3%ADa%20pedir%20cita" target="_blank" rel="noopener noreferrer">
+          <a href="https://wa.me/34{{CLINICA_WHATSAPP_RAW}}?text=Hola%2C%20me%20gustar%C3%ADa%20pedir%20cita" target="_blank" rel="noopener noreferrer">
             <div class="contacto-block__icon contacto-block__icon--wa">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413z"/><path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.556 4.122 1.528 5.855L.057 23.428a.5.5 0 00.515.572l5.736-1.504A11.953 11.953 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.916 0-3.71-.507-5.253-1.393l-.376-.22-3.899 1.022 1.04-3.794-.243-.389A9.953 9.953 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/></svg>
             </div>
@@ -1362,6 +1354,7 @@
             <p class="contacto-block__value">Enviar mensaje</p>
           </a>
         </div>
+        <!--/WHATSAPP-->
 
         <div class="contacto-block fade-up" style="transition-delay:.3s">
           <div>
@@ -1369,7 +1362,7 @@
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
             </div>
             <p class="contacto-block__label">Dirección</p>
-            <p class="contacto-block__value">{{CLINICA_CIUDAD}}</p>
+            <p class="contacto-block__value">{{CLINICA_DIRECCION_VISIBLE}}</p>
           </div>
         </div>
       </div>
@@ -1402,7 +1395,7 @@
         <a href="#pedir-cita">Pedir Cita</a>
       </nav>
       <div class="footer-bottom">
-        <p>© 2025 {{CLINICA_NOMBRE}}. Todos los derechos reservados.</p>
+        <p>© {{ANIO}} {{CLINICA_NOMBRE}}. Todos los derechos reservados.</p>
         <p class="footer-rgpd">Sus datos son tratados conforme al RGPD (UE) 2016/679. <a href="#">Política de privacidad</a></p>
       </div>
     </div>
@@ -1426,13 +1419,15 @@
     </div>
   </div>
 
-  <!-- WHATSAPP flotante -->
-  <a href="https://wa.me/34{{CLINICA_TELEFONO_RAW}}?text=Hola%2C%20me%20gustar%C3%ADa%20pedir%20cita" class="whatsapp-btn" target="_blank" rel="noopener noreferrer" title="Contactar por WhatsApp" aria-label="Contactar por WhatsApp">
+  <!-- WHATSAPP flotante: solo si la clínica tiene móvil para WhatsApp (ver applyPlaceholders) -->
+  <!--WHATSAPP-->
+  <a href="https://wa.me/34{{CLINICA_WHATSAPP_RAW}}?text=Hola%2C%20me%20gustar%C3%ADa%20pedir%20cita" class="whatsapp-btn" target="_blank" rel="noopener noreferrer" title="Contactar por WhatsApp" aria-label="Contactar por WhatsApp">
     <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413z"/>
       <path d="M12 0C5.373 0 0 5.373 0 12c0 2.125.556 4.122 1.528 5.855L.057 23.428a.5.5 0 00.515.572l5.736-1.504A11.953 11.953 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 22c-1.916 0-3.71-.507-5.253-1.393l-.376-.22-3.899 1.022 1.04-3.794-.243-.389A9.953 9.953 0 012 12C2 6.477 6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z"/>
     </svg>
   </a>
+  <!--/WHATSAPP-->
 
   <!-- Pieza 3.3 — Modal "Elegir podólogo" (mostrado solo cuando 2+ disponibles).
        Debe estar en el DOM antes de los <script> que registran sus listeners. -->
@@ -2150,7 +2145,7 @@
         if (conMotivo) {
           // El paso 0 ya no es solo el podólogo, y el botón de volver tiene que decirlo.
           document.getElementById('dot-0').querySelector('.dot-label').textContent = 'Tu consulta';
-          document.getElementById('back-to-pod').textContent = '← Cambiar motivo o podólogo';
+          document.getElementById('back-to-pod').textContent = '← Cambiar servicio o podólogo';
         } else {
           renderPodologoGrid();
         }

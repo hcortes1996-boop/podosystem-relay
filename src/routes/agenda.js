@@ -45,9 +45,27 @@ const limitePublico = process.env.NODE_ENV === 'test'
 //     ...
 //   }
 // }
+const CAMPOS_CLINICA = ['direccion', 'ciudad', 'provincia', 'telefono', 'whatsapp'];
+function guardarDatosClinica(db, clinicaId, datos) {
+  if (!datos || typeof datos !== 'object') return;
+  const sets = [], vals = [];
+  for (const k of CAMPOS_CLINICA) {
+    const v = typeof datos[k] === 'string' ? datos[k].trim().slice(0, 160) : '';
+    if (v) { sets.push(`${k} = ?`); vals.push(v); }
+  }
+  if (sets.length) db.prepare(`UPDATE clinicas SET ${sets.join(', ')} WHERE id = ?`).run(...vals, clinicaId);
+}
+
 router.put('/sync-agenda', auth, (req, res) => {
-  const { config, citasOcupadas, podologos, citasOcupadasPorPodologo, ventana, vetos } = req.body;
+  const { config, citasOcupadas, podologos, citasOcupadasPorPodologo, ventana, vetos, datosClinica } = req.body;
   if (!config) return res.status(400).json({ ok: false, error: 'Falta config' });
+
+  // Los datos de la clínica para su página de citas (04-10-2026): dirección, ciudad, teléfono y
+  // móvil de WhatsApp, tal como los tiene en PodoSystem. Antes solo se podían poner a mano desde
+  // el panel, y ninguna clínica los tenía: la página decía «Sin teléfono» o solo la ciudad.
+  // Solo se escriben los que vienen con valor — un PC antiguo no los manda y no borra nada.
+  try { guardarDatosClinica(req.db, req.clinicaId, datosClinica); }
+  catch (e) { console.error('[sync-agenda] datos de la clínica no guardados:', e.message); }
 
   // Incidente 08-2026 — un envío vacío NO puede borrar la ocupación existente.
   //

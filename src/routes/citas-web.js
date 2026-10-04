@@ -54,6 +54,14 @@ const { construirVars, conMenuDeWeb, __test__ } = require('../netlify-deploy');
 
 /** ¿Tiene la clínica alguna licencia que no esté muerta? Mismo criterio que la limpieza. */
 const LICENCIA_MUERTA = new Set(['expired', 'revoked', 'revocada', 'cancelada', 'cancelled', 'blocked', 'trial']);
+/** El horario que la clínica configura en PodoSystem (llega con cada sincronización). */
+function horarioDe(db, clinicaId) {
+  try {
+    const r = db.prepare('SELECT config FROM agenda_config WHERE clinicaId = ?').get(clinicaId);
+    return r ? (JSON.parse(r.config || '{}').horario || null) : null;
+  } catch (_) { return null; }   // sin horario: la franja dice «Consulte los huecos libres»
+}
+
 function conLicenciaViva(db, clinicaId) {
   try {
     return db.prepare('SELECT estado FROM licencias WHERE clinicaId = ?').all(clinicaId)
@@ -240,6 +248,9 @@ router.get('/cita/:clinicaId', (req, res) => {
     ciudad:    clinica.ciudad    || '',
     direccion: clinica.direccion || '',
     telefono:  clinica.telefono  || '',
+    whatsapp:  clinica.whatsapp  || '',
+    // El horario REAL, el mismo con el que se calculan los huecos (04-10-2026).
+    horario:   horarioDe(req.db, clinica.id),
   });
 
   let html = applyPlaceholders(PLANTILLA, vars);

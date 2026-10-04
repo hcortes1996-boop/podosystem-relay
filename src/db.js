@@ -385,6 +385,9 @@ function initDB() {
   // La clínica tiene web propia y su página de citas, servida por el relay a través de su Netlify,
   // lleva SU menú y SUS estilos (04-10-2026). Ver routes/citas-web.js.
   try { db.exec('ALTER TABLE clinicas ADD COLUMN menuWeb INTEGER DEFAULT 0'); } catch (_) {}
+  // Móvil para los botones de WhatsApp de la página de citas: el teléfono de la clínica suele
+  // ser un fijo, y con él el botón no llevaba a ningún WhatsApp (04-10-2026).
+  try { db.exec('ALTER TABLE clinicas ADD COLUMN whatsapp TEXT'); } catch (_) {}
 
   // v2.2+ — Multi-podólogo (Plan Red web)
   try { db.exec('ALTER TABLE reservas ADD COLUMN podologoId TEXT'); } catch (_) {}

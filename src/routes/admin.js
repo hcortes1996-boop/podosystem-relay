@@ -865,7 +865,7 @@ router.put('/api/clinicas/:id/datos', authAdmin, (req, res) => {
   const clinica = req.db.prepare('SELECT id FROM clinicas WHERE id = ?').get(id);
   if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
 
-  const editables = ['nombre', 'telefono', 'ciudad', 'provincia', 'direccion', 'email', 'profesional'];
+  const editables = ['nombre', 'telefono', 'ciudad', 'provincia', 'direccion', 'email', 'profesional', 'whatsapp'];
   const sets = [];
   const vals = [];
   for (const k of editables) {

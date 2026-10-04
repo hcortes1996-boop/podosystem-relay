@@ -67,6 +67,38 @@ const pagina = (id) => fetch(`${BASE}/cita/${id}`).then(r => r.text());
     });
     prueba(r0.status === 200 && /\/cita-assets\//.test(await pagina('WEB1')), 'y se puede desactivar (menuWeb: false guarda 0, no null)');
 
+    console.log('\n── Personalizada con los datos de CADA clínica (04-10-2026) ──');
+    // Lo que vio Francisco en la de Merino: un horario inventado igual para todas, WhatsApp al fijo…
+    db.prepare("INSERT OR REPLACE INTO agenda_config (clinicaId, config) VALUES ('PAGO1', ?)").run(JSON.stringify({ horario: {
+      '1': [{ inicio: '09:30', fin: '12:30' }, { inicio: '17:00', fin: '19:15' }], '2': [{ inicio: '09:30', fin: '12:30' }, { inicio: '17:00', fin: '19:15' }],
+      '3': [{ inicio: '09:30', fin: '12:30' }, { inicio: '17:00', fin: '19:15' }], '4': [{ inicio: '09:30', fin: '12:30' }, { inicio: '17:00', fin: '19:15' }],
+      '5': [{ inicio: '09:30', fin: '12:30' }] } }));
+    db.prepare("UPDATE clinicas SET telefono='955111222', ciudad='Dos Hermanas', direccion='Calle Real 1' WHERE id='PAGO1'").run();
+    let p = await pagina('PAGO1');
+    const texto = p.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    prueba(/Lunes — Jueves 9:30 — 12:30 17:00 — 19:15/.test(texto) && /Viernes 9:30 — 12:30/.test(texto),
+      'el horario es el SUYO, el que configura en PodoSystem', (texto.match(/Lunes[^|]{0,80}/) || [''])[0]);
+    prueba(/Sábado, Domingo Cerrado/.test(texto) && !/9:00 — 14:00|16:00 — 19:30/.test(texto), 'y no el 9:00—14:00 / 16:00—19:30 que tenían todas');
+    prueba(!/wa\.me/.test(p), 'sin móvil para WhatsApp, no hay botones de WhatsApp (antes apuntaban al fijo)');
+    prueba(/Calle Real 1, Dos Hermanas/.test(p), 'la dirección es la dirección, no solo la ciudad');
+    prueba(new RegExp(`© ${new Date().getFullYear()} `).test(p) && !/© 2025/.test(p), 'el año del pie es el de ahora');
+    prueba(!/resultados probados|última generación|Sin lista de espera/.test(p), 'sin afirmaciones de marketing que la clínica no ha escrito');
+    prueba(/Cambiar servicio o podólogo/.test(p) && !/Cambiar motivo/.test(p), '«Cambiar servicio», no «motivo»');
+    prueba(!/\{\{[A-Z_]+\}\}|<!--\/?WHATSAPP-->/.test(p), 'ningún marcador sin sustituir');
+
+    // La sincronización trae los datos desde PodoSystem, y entonces sí hay WhatsApp
+    const key = db.prepare("SELECT apiKey FROM clinicas WHERE id='PAGO1'").get().apiKey;
+    const s = await fetch(`${BASE}/api/sync-agenda`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Api-Key': key },
+      body: JSON.stringify({ config: { duracionSlot: 30, horario: { '1': [{ inicio: '10:00', fin: '14:00' }] } }, citasOcupadas: [],
+        datosClinica: { direccion: 'Avda Nueva 7', ciudad: 'Sevilla', telefono: '954000000', whatsapp: '+34 611 22 33 44' } }) });
+    p = await pagina('PAGO1');
+    prueba(s.status === 200 && /Avda Nueva 7, Sevilla/.test(p) && /954000000/.test(p), 'la sincronización guarda dirección, ciudad y teléfono de PodoSystem');
+    prueba((p.match(/wa\.me\/34611223344/g) || []).length === 2, 'y con móvil, los botones de WhatsApp van a ESE móvil');
+    prueba(/Lunes 10:00 — 14:00/.test(p.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')), 'y el horario nuevo se ve al momento');
+    await fetch(`${BASE}/api/sync-agenda`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Api-Key': key },
+      body: JSON.stringify({ config: { duracionSlot: 30 }, citasOcupadas: [] }) });
+    prueba(/Avda Nueva 7/.test(await pagina('PAGO1')), 'un PC antiguo, que no manda los datos, no los borra');
+
     console.log('\n── La dirección del relay, limpia ──');
     const { relayUrl } = require('../src/lib/relay-url');
     prueba(relayUrl({ RELAY_URL: ' https://relay.ejemplo/ ' }) === 'https://relay.ejemplo',

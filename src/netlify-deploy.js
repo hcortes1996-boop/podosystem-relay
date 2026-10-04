@@ -57,7 +57,15 @@ function applyPlaceholders(content, vars) {
     .replace(/\{\{CLINICA_TELEFONO\}\}/g,         vars.telefono)
     .replace(/\{\{CLINICA_TELEFONO_RAW\}\}/g,     vars.telefonoRaw)
     .replace(/\{\{CLINICA_DESCRIPCION\}\}/g,      vars.descripcion)
-    .replace(/\{\{CLINICA_LOGO_URL\}\}/g,         vars.logoUrl || 'images/logo.png');
+    .replace(/\{\{CLINICA_LOGO_URL\}\}/g,         vars.logoUrl || 'images/logo.png')
+    .replace(/\{\{CLINICA_HORARIO_HTML\}\}/g,      vars.horarioHtml || '')
+    .replace(/\{\{CLINICA_WHATSAPP_RAW\}\}/g,      vars.whatsappRaw || '')
+    .replace(/\{\{CLINICA_DIRECCION_VISIBLE\}\}/g, vars.direccionVisible || vars.ciudad || '')
+    .replace(/\{\{ANIO\}\}/g,                      String(vars.anio || new Date().getFullYear()))
+    // Sin móvil para WhatsApp, fuera los botones (04-10-2026): usaban el teléfono de la clínica,
+    // y con un fijo el botón no llevaba a ningún WhatsApp. Con móvil, solo se quitan las marcas.
+    .replace(/<!--WHATSAPP-->[\s\S]*?<!--\/WHATSAPP-->/g, (bloque) => vars.whatsappRaw
+      ? bloque.replace(/<!--\/?WHATSAPP-->/g, '') : '');
 }
 
 /**
@@ -68,8 +76,15 @@ function applyPlaceholders(content, vars) {
  * franjas reservadas del 11-08-2026: dos copias de la misma lógica que se separan
  * sin que nadie lo vea. Ahora hay una sola, y la usan los dos caminos.
  */
-function construirVars({ clinicaId, nombre, ciudad = '', direccion = '', telefono = '' }) {
+function construirVars({ clinicaId, nombre, ciudad = '', direccion = '', telefono = '', whatsapp = '', horario = null }) {
   const teleRaw = String(telefono || '').replace(/\D/g, '');
+  // wa.me lleva el 34 delante en la plantilla: si viene con prefijo (+34 / 0034), se le quita.
+  const waRaw = String(whatsapp || '').replace(/\D/g, '').replace(/^(00)?34(?=\d{9}$)/, '');
+  // La dirección que se enseña: la calle y la ciudad, sin repetir la ciudad si la calle ya la lleva.
+  const dir = String(direccion || '').trim();
+  const ciu = String(ciudad || '').trim();
+  const direccionVisible = dir && ciu && !dir.toLowerCase().includes(ciu.toLowerCase())
+    ? `${dir}, ${ciu}` : (dir || ciu);
   const partes  = String(nombre || '').trim().split(/\s+/);
   const nombreHeader = partes.length >= 3
     ? `${partes.slice(0, -1).join(' ')}<br><strong>${partes[partes.length - 1]}</strong>`
@@ -91,6 +106,11 @@ function construirVars({ clinicaId, nombre, ciudad = '', direccion = '', telefon
     color2:      colors.color2,
     colorAccent: colors.accent,
     logoUrl:     `${relayBase}/api/clinicas/${clinicaId}/logo`,
+    // Solo un móvil español puede tener WhatsApp; con cualquier otra cosa, sin botones.
+    whatsappRaw: /^[67]\d{8}$/.test(waRaw) ? waRaw : '',
+    horarioHtml: require('./lib/horario-web').horarioHtml(horario),
+    direccionVisible,
+    anio:        new Date().getFullYear(),
   };
 }
 
