@@ -94,6 +94,12 @@ const pagina = (id) => fetch(`${BASE}/cita/${id}`).then(r => r.text());
     p = await pagina('PAGO1');
     prueba(s.status === 200 && /Avda Nueva 7, Sevilla/.test(p) && /954000000/.test(p), 'la sincronización guarda dirección, ciudad y teléfono de PodoSystem');
     prueba((p.match(/wa\.me\/34611223344/g) || []).length === 2, 'y con móvil, los botones de WhatsApp van a ESE móvil');
+    // WhatsApp Business con un FIJO: es lo que tiene la clínica de Francisco (04-10-2026)
+    db.prepare("UPDATE clinicas SET whatsapp='955 67 66 63' WHERE id='PAGO1'").run();
+    prueba((await pagina('PAGO1')).match(/wa\.me\/34955676663/g)?.length === 2, 'un FIJO también vale (WhatsApp Business con el de la consulta)');
+    db.prepare("UPDATE clinicas SET whatsapp='123' WHERE id='PAGO1'").run();
+    prueba(!/wa\.me/.test(await pagina('PAGO1')), 'y algo que no es un teléfono, no saca botones');
+    db.prepare("UPDATE clinicas SET whatsapp='+34 611 22 33 44' WHERE id='PAGO1'").run();
     prueba(/Lunes 10:00 — 14:00/.test(p.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')), 'y el horario nuevo se ve al momento');
     await fetch(`${BASE}/api/sync-agenda`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-Api-Key': key },
       body: JSON.stringify({ config: { duracionSlot: 30 }, citasOcupadas: [] }) });

@@ -106,8 +106,10 @@ function construirVars({ clinicaId, nombre, ciudad = '', direccion = '', telefon
     color2:      colors.color2,
     colorAccent: colors.accent,
     logoUrl:     `${relayBase}/api/clinicas/${clinicaId}/logo`,
-    // Solo un móvil español puede tener WhatsApp; con cualquier otra cosa, sin botones.
-    whatsappRaw: /^[67]\d{8}$/.test(waRaw) ? waRaw : '',
+    // Cualquier número español de 9 cifras, fijo o móvil: WhatsApp Business funciona con un fijo,
+    // y así lo tiene la clínica de Francisco, con el de la consulta para no dar su móvil personal
+    // (04-10-2026). La primera versión solo aceptaba móviles y le quitaba los botones.
+    whatsappRaw: /^[6789]\d{8}$/.test(waRaw) ? waRaw : '',
     horarioHtml: require('./lib/horario-web').horarioHtml(horario),
     direccionVisible,
     anio:        new Date().getFullYear(),
