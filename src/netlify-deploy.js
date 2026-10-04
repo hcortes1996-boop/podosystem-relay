@@ -76,7 +76,7 @@ function construirVars({ clinicaId, nombre, ciudad = '', direccion = '', telefon
     : `<strong>${nombre}</strong>`;
 
   const colors    = clinicaColors(nombre);
-  const relayBase = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
+  const relayBase = require('./lib/relay-url').relayUrl();
 
   return {
     clinicaId,

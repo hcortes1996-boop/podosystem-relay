@@ -30,7 +30,7 @@ router.post('/activar-citas', (req, res) => {
 
   req.db.prepare('UPDATE clinicas SET activation_code_used = 1 WHERE id = ?').run(clinica.id);
 
-  const relayUrl = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
+  const relayUrl = require('../lib/relay-url').relayUrl();
   res.json({ ok: true, clinicaId: clinica.id, apiKey: clinica.apiKey, relayUrl, webUrl: clinica.webUrl || null, nombre: clinica.nombre });
 });
 

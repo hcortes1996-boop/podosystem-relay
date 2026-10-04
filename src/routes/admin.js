@@ -756,7 +756,7 @@ router.post('/api/nuevo-cliente', authAdmin, async (req, res) => {
   }
 
   // 5. Generar borrador email
-  const relayUrl   = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
+  const relayUrl   = require('../lib/relay-url').relayUrl();
   const emailDraft = generarEmailBienvenida({
     nombre:    clienteNombre.trim(),
     email:     clienteEmail.trim(),

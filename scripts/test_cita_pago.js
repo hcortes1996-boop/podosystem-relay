@@ -67,6 +67,13 @@ const pagina = (id) => fetch(`${BASE}/cita/${id}`).then(r => r.text());
     });
     prueba(r0.status === 200 && /\/cita-assets\//.test(await pagina('WEB1')), 'y se puede desactivar (menuWeb: false guarda 0, no null)');
 
+    console.log('\n── La dirección del relay, limpia ──');
+    const { relayUrl } = require('../src/lib/relay-url');
+    prueba(relayUrl({ RELAY_URL: ' https://relay.ejemplo/ ' }) === 'https://relay.ejemplo',
+      'sin el espacio delante que tiene RELAY_URL en Railway (04-10-2026), ni barra al final');
+    prueba(relayUrl({}) === 'https://podosystem-relay-production.up.railway.app', 'y sin variable, la de siempre');
+    prueba(!/src=" https?:/.test(web), 'en la página no queda ningún enlace con un espacio delante');
+
     console.log('\n── Una licencia que caduca devuelve el cartel ──');
     db.prepare("UPDATE licencias SET estado = 'expired' WHERE id = 'L1'").run();
     prueba(/período de prueba/.test(await pagina('PAGO1')), 'sin licencia viva, vuelve el cartel');

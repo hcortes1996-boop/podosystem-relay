@@ -414,7 +414,7 @@ router.post('/trial/web/confirmar', limite, (req, res) => {
     apiKey,
     nombre: nombreClinica,
     // La dirección que el PC enseñará con el QR (bloque 4).
-    webUrl: (process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app') + '/cita/' + clinicaId,
+    webUrl: require('../lib/relay-url').relayUrl() + '/cita/' + clinicaId,
   });
 });
 

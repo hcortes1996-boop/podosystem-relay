@@ -194,7 +194,7 @@ router.get('/cita-qr/:clinicaId', async (req, res) => {
 
   if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
 
-  const base = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
+  const base = require('../lib/relay-url').relayUrl();
   try {
     const svg = await QRCode.toString(urlDeLaClinica(clinica, base), {
       type: 'svg', margin: 1, width: 320, errorCorrectionLevel: 'M',

@@ -163,7 +163,7 @@ async function handleOrderCreated(db, { attrs, customData, subscriptionId }) {
   db.prepare('INSERT INTO clinicas (id, nombre, apiKey) VALUES (?, ?, ?)').run(clinicaId, clienteNombre, apiKey);
   db.prepare('UPDATE licencias SET clinicaId = ? WHERE id = ?').run(clinicaId, licId);
 
-  const relayUrl = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
+  const relayUrl = require('../lib/relay-url').relayUrl();
   console.log(`[webhook/order_created] ✅ Licencia creada: ${licenseKey} | plan=${plan} | email=${clienteEmail}`);
   console.log(`[webhook/order_created]    clinicaId=${clinicaId} | apiKey=${apiKey} | relay=${relayUrl}`);
 

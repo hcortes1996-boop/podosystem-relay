@@ -52,7 +52,7 @@ router.post('/alta-relay', altaLimiter, async (req, res) => {
     podosystem_version       || null,
   );
 
-  const relayUrl = process.env.RELAY_URL || 'https://podosystem-relay-production.up.railway.app';
+  const relayUrl = require('../lib/relay-url').relayUrl();
   const adminEmail = process.env.ADMIN_EMAIL || 'info@podosystem.es';
 
   const filas = [
