@@ -26,6 +26,16 @@ const pruebas = fs.readdirSync(DIR)
   .filter(f => /^test_.*\.js$/.test(f))
   .sort();
 
+// Restos de pasadas anteriores. Cada prueba nombra su base con su PID y la borra al acabar, pero en
+// Windows el borrado falla si la base sigue abierta, y se acumulan (555 el 06-10-2026). Cuando
+// Windows repite un PID, la prueba arranca sobre la base vieja con datos dentro y falla sin motivo.
+{
+  const os = require('os');
+  for (const f of fs.readdirSync(os.tmpdir())) {
+    if (/^relay_[a-z0-9_]+\.db(-shm|-wal)?$/i.test(f)) { try { fs.unlinkSync(path.join(os.tmpdir(), f)); } catch (_) {} }
+  }
+}
+
 console.log(`\n🧪 Batería del relay — ${pruebas.length} pruebas\n`);
 
 const rojas = [];
