@@ -39,7 +39,12 @@ app.use('/api/webhooks', express.raw({ type: 'application/json' }));
 app.use('/api/webhooks', require('./routes/webhooks'));         // /api/webhooks/lemonsqueezy
 app.use('/api/webhooks', require('./routes/webhooks-stripe'));  // /api/webhooks/stripe
 
-app.use(express.json());
+// Límite del cuerpo: 2 MB. El de serie de Express es 100 KB, y el PC manda en cada sincronización
+// los huecos ocupados de toda la ventana y TODAS las citas futuras (para la APK). Medido el
+// 06-10-2026: una clínica con un podólogo a pleno ocupa ~23 KB; una de 4-5 podólogos con la
+// agenda llena a un mes vista pasaba de 100 KB. Pasado el límite, Express responde 413, el relay
+// se queda con la ocupación vieja y la web ofrece horas que ya tienen paciente — en silencio.
+app.use(express.json({ limit: '2mb' }));
 
 // Ruta raíz informativa
 app.get('/', (_req, res) => {
