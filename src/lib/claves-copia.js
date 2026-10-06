@@ -168,5 +168,5 @@ async function revocarPorKeyId(keyId, { env = process.env, fetchImpl = fetch } =
   }
 }
 
-module.exports = { claveDeClinica, revocarClave, revocarPorKeyId, configuracion, CAPACIDADES_CLINICA, asegurarTabla,
+module.exports = { claveDeClinica, revocarClave, revocarPorKeyId, configuracion, gestor, CAPACIDADES_CLINICA, asegurarTabla,
                    _cifrar: cifrar, _descifrar: descifrar, _claveDeCifrado: claveDeCifrado };

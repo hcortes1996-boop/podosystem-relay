@@ -32,14 +32,16 @@
  *   `solicitudes_alta` son historial nuestro (quién tuvo licencia, quién probó), no datos de sus
  *   pacientes. Se quedan con `clinicaId = NULL`.
  *
- * - **Las copias en la nube (Backblaze) NO se borran aquí**: el relay no tiene credenciales de B2.
- *   El informe lista qué carpetas tocaría; se hará con la clave por clínica. Tampoco se borra el
- *   sitio de Netlify de una clínica de pago: se avisa en el informe.
+ * - **Las copias en la nube (Backblaze) se borran a los 90 días** del fin del servicio (Anexo C), no
+ *   el día 30: el día 30 se revoca su clave y se APUNTA su carpeta en `copias_por_borrar`; el
+ *   borrado lo hace `borrar-copias-clinica.js` cuando vence el plazo (06-10-2026). El sitio de
+ *   Netlify de una clínica de pago no se borra: se avisa en el informe.
  */
 'use strict';
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 const DIAS_CORTESIA = 30;
+const DIAS_COPIAS = 90;   // las copias en la nube, desde el fin del servicio (Anexo C)
 // La duración de la prueba: la misma que `TRIAL_DIAS` en routes/trials.js (lo fija la prueba).
 const DIAS_PRUEBA = 60;
 const RESERVA_DIAS_TRAS_CITA = 7;   // una reserva vive hasta su cita + 7 días (ver el paso 3)
@@ -170,7 +172,13 @@ function revisarClinicas(db, { ahora = new Date(), modo = process.env.LIMPIEZA_M
       let claveB2 = null;
       try { claveB2 = db.prepare('SELECT keyId FROM claves_copia WHERE clinicaId = ?').get(c.id); } catch (_) {}
 
+      const copias = require('./borrar-copias-clinica');
+      copias.asegurarTabla(db);
       db.transaction(() => {
+        // Antes de borrar nada: apuntar su carpeta de copias, para borrarla el día 90.
+        db.prepare(`INSERT OR REPLACE INTO copias_por_borrar (idClinica, prefijo, finServicio, borrarDesde, apuntadaEn)
+                    VALUES (?, ?, ?, ?, ?)`)
+          .run(c.id, `${c.id}/`, fin, new Date(tFin + DIAS_COPIAS * DIA_MS).toISOString(), iso);
         for (const tabla of tablas) {
           if (SOLO_APUNTAN.has(tabla)) db.prepare(`UPDATE ${tabla} SET clinicaId = NULL WHERE clinicaId = ?`).run(c.id);
           else db.prepare(`DELETE FROM ${tabla} WHERE clinicaId = ?`).run(c.id);
@@ -237,9 +245,17 @@ function iniciarLimpieza(db) {
         console.log(`[limpieza] ENSAYO — borraría ${d.clinicaId} (${d.motivo}, fin ${d.finServicio}): ${JSON.stringify(d.filas)}`);
       }
       for (const d of [...ultimoInforme.aBorrar, ...ultimoInforme.borradas]) {
-        console.log(`[limpieza] ⚠️ ${d.clinicaId}: sus copias en la nube (${d.copiaNube}) NO se borran desde el relay` +
-          (d.netlify ? `, y su sitio de Netlify (${d.netlify}) hay que retirarlo a mano` : ''));
+        console.log(`[limpieza] ${d.clinicaId}: sus copias en la nube (${d.copiaNube}) se borrarán a los ${DIAS_COPIAS} días del fin del servicio` +
+          (d.netlify ? `; su sitio de Netlify (${d.netlify}) hay que retirarlo a mano` : ''));
       }
+      // Las copias que ya han cumplido sus 90 días. Asíncrono: no bloquea la pasada.
+      require('./borrar-copias-clinica').procesarPendientes(db).then(c => {
+        inf.copias = c;
+        if (c.vencidas.length || c.errores.length) {
+          console.log(`[limpieza] copias en la nube (${c.modo}): ${c.vencidas.length} vencida(s), ` +
+            `${c.borradas.length} borrada(s), ${c.errores.length} error(es) ${JSON.stringify(c.errores)}`);
+        }
+      }).catch(e => console.error('[limpieza] copias en la nube:', e.message));
     } catch (e) {
       console.error('[limpieza] la pasada falló:', e.message);
     }
@@ -250,4 +266,4 @@ function iniciarLimpieza(db) {
   setInterval(pasada, INTERVALO_MS).unref();
 }
 
-module.exports = { revisarClinicas, iniciarLimpieza, ultimo, DIAS_CORTESIA, DIAS_PRUEBA, RESERVA_DIAS_TRAS_CITA };
+module.exports = { revisarClinicas, iniciarLimpieza, ultimo, DIAS_CORTESIA, DIAS_COPIAS, DIAS_PRUEBA, RESERVA_DIAS_TRAS_CITA };
