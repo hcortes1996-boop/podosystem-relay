@@ -95,8 +95,9 @@ router.post('/trial/registrar', limite, async (req, res) => {
     // Quien vuelve no genera una fila nueva: se le suma una descarga. Si no, un mismo
     // interesado que entra tres veces pareceria tres interesados.
     const previo = req.db.prepare('SELECT id, descargas FROM trials WHERE email = ?').get(email);
+    const trialId = previo ? previo.id : genId(12);
     try {
-      legal.registrar(req.db, { para: 'prueba', email, req, documentos: acept.documentos, trialId: previo ? previo.id : null });
+      legal.registrar(req.db, { para: 'prueba', email, req, documentos: acept.documentos, trialId });
     } catch (e) { console.error('[trials] no se pudo registrar la aceptación:', e.message); }
     if (previo) {
       req.db.prepare(`UPDATE trials SET descargas = descargas + 1, ultima_descarga = ?,
@@ -108,7 +109,7 @@ router.post('/trial/registrar', limite, async (req, res) => {
           (id, nombre, email, telefono, clinica, provincia,
            acepta_privacidad, acepta_privacidad_en, version_descargada, ip, user_agent, ultima_descarga)
           VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`)
-        .run(genId(12), nombre, email, telefono, clinica || null, provincia || null,
+        .run(trialId, nombre, email, telefono, clinica || null, provincia || null,
              ahora, version, ip || null, ua || null, ahora);
     }
   } catch (e) {

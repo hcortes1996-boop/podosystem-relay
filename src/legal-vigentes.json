@@ -3,7 +3,8 @@
   "documentos": [
     {
       "id": "condiciones",
-      "titulo": "Condiciones Generales",
+      "titulo": "Términos y Condiciones de Uso",
+      "articulo": "los",
       "version": "2026-06-27",
       "accion": "acepto",
       "para": ["compra", "prueba"],
@@ -14,6 +15,7 @@
     {
       "id": "privacidad",
       "titulo": "Política de Privacidad",
+      "articulo": "la",
       "version": "2026-05",
       "accion": "leido",
       "para": ["compra", "prueba"],

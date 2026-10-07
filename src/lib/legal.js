@@ -46,7 +46,7 @@ function asegurarTabla(db) {
 /** Los documentos que hay que aceptar para `para` ('compra' | 'prueba'). */
 function vigentes(para) {
   return VIGENTES.documentos.filter(d => d.para.includes(para))
-    .map(({ id, titulo, version, accion, ver, pdf, sha256 }) => ({ id, titulo, version, accion, ver, pdf, sha256 }));
+    .map(({ id, titulo, articulo, version, accion, ver, pdf, sha256 }) => ({ id, titulo, articulo: articulo || 'el', version, accion, ver, pdf, sha256 }));
 }
 
 /**
