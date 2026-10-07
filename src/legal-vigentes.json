@@ -1,6 +1,21 @@
 {
-  "_comentario": "Las versiones de los documentos legales que hay que aceptar. Para publicar una versión nueva: subir su PDF fijo a podosystem.es/legal/, añadirla aquí con su sha256 y desplegar. NUNCA se borra ni se cambia un PDF ya publicado: es la prueba de lo que aceptó cada cliente. Ver lib/legal.js.",
+  "_comentario": "Las versiones de los documentos legales que hay que aceptar. Para publicar una versión nueva: subir su PDF fijo a podosystem.es/legal/, añadirla aquí con su sha256 y desplegar. NUNCA se borra ni se cambia un PDF ya publicado: es la prueba de lo que aceptó cada cliente. Ver lib/legal.js. Una versión sustituida se deja con \"para\": [] (ya no se pide, pero queda para consultar qué aceptó cada cliente).",
   "documentos": [
+    {
+      "id": "condiciones",
+      "titulo": "Términos y Condiciones de Uso",
+      "articulo": "los",
+      "version": "2026-10-07",
+      "accion": "acepto",
+      "declaracion": "y declaro que contrato en el ejercicio de mi actividad empresarial o profesional",
+      "para": [
+        "compra",
+        "prueba"
+      ],
+      "ver": "https://podosystem.es/terminos",
+      "pdf": "https://podosystem.es/legal/condiciones-2026-10-07.pdf",
+      "sha256": "53a8c5afe4128fa96b8498d5e380943c64732142a57bd57727eb4b5c547a5e09"
+    },
     {
       "id": "condiciones",
       "titulo": "Términos y Condiciones de Uso",
@@ -8,10 +23,11 @@
       "version": "2026-06-27",
       "accion": "acepto",
       "declaracion": "y declaro que contrato en el ejercicio de mi actividad empresarial o profesional",
-      "para": ["compra", "prueba"],
+      "para": [],
       "ver": "https://podosystem.es/terminos",
       "pdf": "https://podosystem.es/legal/condiciones-2026-06-27.pdf",
-      "sha256": "16c6828ceafcb604a211d30056fa5862854d3d0cb73b4a4e0e73b5942cb87fd0"
+      "sha256": "16c6828ceafcb604a211d30056fa5862854d3d0cb73b4a4e0e73b5942cb87fd0",
+      "_nota": "Sustituida el 07-10-2026 por la 2026-10-07 (precios 23/27/34 €). Se conserva: es la que aceptaron quienes contrataron antes."
     },
     {
       "id": "privacidad",
@@ -19,7 +35,10 @@
       "articulo": "la",
       "version": "2026-05",
       "accion": "leido",
-      "para": ["compra", "prueba"],
+      "para": [
+        "compra",
+        "prueba"
+      ],
       "ver": "https://podosystem.es/privacidad",
       "pdf": "https://podosystem.es/legal/privacidad-2026-05.pdf",
       "sha256": "16b059890a5d33961eaa42068ce173d66024b8e83ac662b23409a5130c6c8756"
