@@ -99,12 +99,24 @@ router.get('/index.html', (_req, res) => {
 
 // ── Verificar licencia desde Electron (sin auth admin) ───────────────────────
 
+// Los estados en que una licencia ya no da servicio (los mismos que la limpieza y las copias).
+const LICENCIA_NO_VALIDA = new Set(['expired', 'revoked', 'revocada', 'cancelada', 'cancelled']);
+
 router.post('/api/licencias/verificar', (req, res) => {
   const { licenseKey, hardwareId, instanceId, version } = req.body;
   if (!licenseKey) return res.status(400).json({ ok: false, error: 'licenseKey requerida' });
   const lic = req.db.prepare('SELECT * FROM licencias WHERE licenseKey = ?').get(licenseKey);
   if (!lic) return res.status(404).json({ ok: false, error: 'Licencia no encontrada' });
   if (lic.estado === 'blocked') return res.status(403).json({ ok: false, error: 'Licencia bloqueada' });
+  // Una licencia caducada o cancelada tampoco vale (07-10-2026). Hasta hoy solo se cortaba la
+  // 'blocked': cuando Stripe la daba por caducada (impago o cancelación) se respondía ok y el PC
+  // seguía con el programa entero, contra lo que promete el contrato (solo lectura). El PC ya
+  // trata esta respuesta como caducada; al volver a pagar, el webhook la pone 'active' y en su
+  // siguiente comprobación sale solo del solo lectura. Va ANTES de registrar el equipo: si no,
+  // una licencia caducada sin equipo se volvía a poner 'active' aquí mismo.
+  if (LICENCIA_NO_VALIDA.has(String(lic.estado || '').toLowerCase())) {
+    return res.status(403).json({ ok: false, error: 'Licencia caducada', estado: lic.estado });
+  }
 
   // Vista de flota (27-08-2026). El PC dice qué versión corre; aquí se anota junto a cuándo
   // se la vio. Un cliente atascado en una versión vieja se detecta antes de que llame.

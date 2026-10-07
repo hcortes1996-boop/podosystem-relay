@@ -874,7 +874,19 @@ router.get('/podologos-disponibles/:clinicaId/:fecha/:hora', (req, res) => {
 });
 
 /* ── Reservar slot directamente (público, atómico) ────────────── */
-router.post('/reservar-slot', (req, res) => {
+// Límite de la reserva (07-10-2026): era la única ruta pública sin él. 20 por hora y IP basta
+// de sobra para una familia que reserva varias citas, y frena a quien llene la agenda a ráfagas.
+const limiteReservar = process.env.NODE_ENV === 'test'
+  ? (_req, _res, next) => next()
+  : require('express-rate-limit')({
+      windowMs: 60 * 60 * 1000,
+      max: 20,
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { ok: false, error: 'Demasiadas reservas seguidas. Inténtelo más tarde o llame a la clínica.' },
+    });
+
+router.post('/reservar-slot', limiteReservar, (req, res) => {
   const { clinicaId, fecha, hora, nombre, telefono, email, motivo, observaciones, podologoId } = req.body;
 
   if (!clinicaId || !fecha || !hora || !nombre?.trim() || !telefono?.trim()) {

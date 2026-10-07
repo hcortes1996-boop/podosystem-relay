@@ -41,7 +41,8 @@
 
 const DIA_MS = 24 * 60 * 60 * 1000;
 const DIAS_CORTESIA = 30;
-const DIAS_COPIAS = 90;   // las copias en la nube, desde el fin del servicio (Anexo C)
+const DIAS_COPIAS = 90;
+const DIAS_DATOS_PRUEBA = 365;   // quien pidió la prueba y no contrató (decidido el 07-10-2026)   // las copias en la nube, desde el fin del servicio (Anexo C)
 // La duración de la prueba: la misma que `TRIAL_DIAS` en routes/trials.js (lo fija la prueba).
 const DIAS_PRUEBA = 60;
 const RESERVA_DIAS_TRAS_CITA = 7;   // una reserva vive hasta su cita + 7 días (ver el paso 3)
@@ -209,6 +210,43 @@ function revisarClinicas(db, { ahora = new Date(), modo = process.env.LIMPIEZA_M
     }
   } catch (e) {
     informe.errores.push({ reservas: e.message });
+  }
+
+  // ── 3b. Lo que pasó por el servidor de camino al PC (07-10-2026) ────────────
+  //
+  // · `citas_remote_ops`: cambios de citas hechos desde el móvil fuera de la clínica (pueden
+  //   llevar notas). Una vez que el PC los ha recogido (`syncedAt`) no los necesita nadie: fuera
+  //   a los 7 días, como las reservas.
+  // · `solicitudes`: el formulario antiguo, ya retirado; tenía la IP del paciente. 30 días.
+  // · Datos de quien pidió la prueba y no contrató: 12 meses desde su última descarga (decidido
+  //   por Francisco). Se borra la fila de `trials` y sus aceptaciones de prueba; de los equipos
+  //   (`trial_instalaciones`) se borra la IP, y se conserva la huella y la fecha de fin, que es
+  //   lo que impide repetir la prueba en el mismo equipo.
+  // Con el mismo modo que el resto: en ENSAYO solo se cuentan.
+  try {
+    const hace7 = new Date(t - 7 * DIA_MS).toISOString();
+    const hace30 = new Date(t - 30 * DIA_MS).toISOString();
+    const hace12m = new Date(t - DIAS_DATOS_PRUEBA * DIA_MS).toISOString();
+    const cuenta = (sql, ...a) => { try { return db.prepare(sql).get(...a).n; } catch (_) { return 0; } };
+    const corre = (sql, ...a) => { try { return db.prepare(sql).run(...a).changes; } catch (_) { return 0; } };
+    const noCliente = "LOWER(email) NOT IN (SELECT LOWER(clienteEmail) FROM licencias WHERE clienteEmail IS NOT NULL)";
+    informe.purgas = {
+      citasRemotasSincronizadas: cuenta('SELECT COUNT(*) AS n FROM citas_remote_ops WHERE syncedAt IS NOT NULL AND syncedAt < ?', hace7),
+      solicitudesAntiguas: cuenta('SELECT COUNT(*) AS n FROM solicitudes WHERE creadaEn < ?', hace30),
+      pruebasSinContratar: cuenta(`SELECT COUNT(*) AS n FROM trials WHERE COALESCE(ultima_descarga, acepta_privacidad_en, creadaEn) < ? AND ${noCliente}`, hace12m),
+      ipsDeEquipos: cuenta('SELECT COUNT(*) AS n FROM trial_instalaciones WHERE ip IS NOT NULL AND COALESCE(ultimaVista, primeraVista) < ?', hace12m),
+      borradas: false,
+    };
+    if (aplicar) {
+      corre('DELETE FROM citas_remote_ops WHERE syncedAt IS NOT NULL AND syncedAt < ?', hace7);
+      corre('DELETE FROM solicitudes WHERE creadaEn < ?', hace30);
+      corre(`DELETE FROM aceptaciones_legales WHERE para = 'prueba' AND fecha < ? AND ${noCliente}`, hace12m);
+      corre(`DELETE FROM trials WHERE COALESCE(ultima_descarga, acepta_privacidad_en, creadaEn) < ? AND ${noCliente}`, hace12m);
+      corre('UPDATE trial_instalaciones SET ip = NULL WHERE ip IS NOT NULL AND COALESCE(ultimaVista, primeraVista) < ?', hace12m);
+      informe.purgas.borradas = true;
+    }
+  } catch (e) {
+    informe.errores.push({ purgas: e.message });
   }
 
   // ── 4. El registro de accesos al panel, 90 días ─────────────────────────
