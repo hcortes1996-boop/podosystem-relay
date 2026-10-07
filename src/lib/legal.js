@@ -119,10 +119,15 @@ function htmlConfirmacion(docs) {
     (d.pdf ? ` · <a href="${esc(d.pdf)}" style="color:#2ecc9a">descargar PDF</a>` : '') + '</li>').join('');
   return `
     <div style="margin:0 0 24px;padding:18px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
-      <p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#1E3A5F">Confirmación de la contratación</p>
-      <p style="margin:0 0 8px;font-size:.88rem;color:#334155;line-height:1.6">Al contratar has aceptado estos documentos. Guárdalos: son las condiciones de tu contrato.</p>
+      <p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#1E3A5F">Confirmación de la contratación · copia de las condiciones</p>
+      <p style="margin:0 0 8px;font-size:.88rem;color:#334155;line-height:1.6">Te adjuntamos <strong>copia de las condiciones vigentes en el momento de la contratación</strong>, en PDF. Guárdalas: son las condiciones de tu contrato.</p>
       <ul style="margin:0;padding-left:20px;font-size:.88rem;color:#334155;line-height:1.8">${filas}</ul>
     </div>`;
 }
 
-module.exports = { vigentes, validar, registrar, enlazarLicencia, documentosDe, htmlConfirmacion, asegurarTabla, VIGENTES };
+/** Los PDF de esa aceptación, como adjuntos del correo (Resend los descarga de su URL fija). */
+function adjuntosDe(docs) {
+  return (docs || []).filter(d => d.pdf).map(d => ({ filename: d.pdf.split('/').pop(), path: d.pdf }));
+}
+
+module.exports = { adjuntosDe, vigentes, validar, registrar, enlazarLicencia, documentosDe, htmlConfirmacion, asegurarTabla, VIGENTES };

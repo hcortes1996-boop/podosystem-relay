@@ -76,7 +76,7 @@ avisarOverride();
  * todos los envíos van a esa dirección (y el asunto se prefija con [TEST]).
  * Si RESEND_API_KEY no está configurada, solo loguea un warning (no lanza).
  */
-async function sendMail({ to, subject, html }) {
+async function sendMail({ to, subject, html, attachments }) {
   const resend = getClient();
   if (!resend) {
     console.warn('[email] RESEND_API_KEY no configurado — email no enviado. To:', to, '| Subject:', subject);
@@ -99,6 +99,8 @@ async function sendMail({ to, subject, html }) {
     subject: actualSubject,
     html,
     text:    html.replace(/<[^>]+>/g, '').replace(/\s{2,}/g, ' ').trim(),
+    // Adjuntos por URL (Resend los descarga): la copia de las condiciones al contratar (07-10-2026)
+    ...(Array.isArray(attachments) && attachments.length ? { attachments } : {}),
   });
   if (error) throw new Error(`Resend: ${error.message || JSON.stringify(error)}`);
   return data;

@@ -357,7 +357,8 @@ async function handleCheckoutCompleted(db, session) {
   //     las confirma con enlace a su copia fija (LSSI art. 28).
   const legal = require('../lib/legal');
   legal.enlazarLicencia(db, { stripeSessionId: session.id, licenciaId: licId, email: clienteEmail });
-  const confirmacion = legal.htmlConfirmacion(legal.documentosDe(db, { stripeSessionId: session.id }));
+  const docsAceptados = legal.documentosDe(db, { stripeSessionId: session.id });
+  const confirmacion = legal.htmlConfirmacion(docsAceptados);
 
   // 4. Email de bienvenida con la clave (fire-and-forget; la licencia ya esta creada,
   //    si el email falla se loguea y el admin puede reenviar — no bloquea el webhook).
@@ -366,6 +367,8 @@ async function handleCheckoutCompleted(db, session) {
     to:      clienteEmail,
     subject: 'Bienvenido a PodoSystem — Tu clave de licencia',
     html:    buildEmailLicencia({ nombre: clienteNombre, plan: planFinal, licenseKey, confirmacion }),
+    // Copia de las condiciones vigentes al contratar, en PDF (LSSI): las mismas versiones que aceptó.
+    attachments: legal.adjuntosDe(docsAceptados),
   }).then(() => console.log(`[webhook-stripe/checkout] Email bienvenida enviado a ${clienteEmail}`))
     .catch(err => console.error(`[webhook-stripe/checkout] Email bienvenida FALLO (licencia ya creada): ${err.message}`));
 }

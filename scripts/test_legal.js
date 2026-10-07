@@ -83,12 +83,19 @@ setTimeout(async () => {
     prueba(buildEmailLicencia({ nombre: 'X', plan: 'clinica', licenseKey: 'K', confirmacion: html }).includes('Confirmación de la contratación'),
       'y va dentro del correo de la licencia');
 
+    const adj = legal.adjuntosDe(legal.documentosDe(db, { stripeSessionId: 'cs_test_123' }));
+    prueba(adj.length === 2 && adj.every(a => /\.pdf$/.test(a.filename) && /^https:\/\/podosystem\.es\/legal\//.test(a.path)),
+      'y adjunta en PDF la copia de las versiones que aceptó');
+    prueba(/copia de las condiciones vigentes en el momento de la contratación/.test(html), 'diciéndolo así en el correo');
+
     console.log('\n── El código de la ruta ──');
     const ck = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'checkout.js'), 'utf8');
     prueba(ck.indexOf("legal.validar('compra'") < ck.indexOf('stripeClient.checkout.sessions.create'),
       'el pago comprueba las condiciones ANTES de crear la sesión de Stripe');
     const wh = fs.readFileSync(path.join(__dirname, '..', 'src', 'routes', 'webhooks-stripe.js'), 'utf8');
     prueba(/legal\.enlazarLicencia\(db, \{ stripeSessionId: session\.id/.test(wh), 'el webhook enlaza la aceptación con la licencia');
+    prueba(/attachments: legal\.adjuntosDe\(docsAceptados\)/.test(wh), 'y el correo de la licencia lleva los PDF adjuntos');
+    prueba(/attachments \}/.test(fs.readFileSync(path.join(__dirname, '..', 'src', 'email.js'), 'utf8')), 'el envío de correo pasa los adjuntos a Resend');
 
     console.log('\n── El JSON de versiones ──');
     const J = require('../src/legal-vigentes.json');
