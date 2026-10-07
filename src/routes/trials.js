@@ -34,6 +34,7 @@ const { genId, genApiKey } = require('../db');
 const { ultimaDescarga } = require('../lib/descarga');
 const { firmar } = require('../firma');
 const { sendMail } = require('../email');
+const legal = require('../lib/legal');
 const {
   VIDA_CODIGO_MS, MAX_INTENTOS, generarCodigo, hashCodigo, pistaEmail, comprobarCodigo,
 } = require('../lib/codigo-verificacion');
@@ -73,6 +74,9 @@ router.post('/trial/registrar', limite, async (req, res) => {
   if (!acepta) {
     return res.status(400).json({ ok: false, error: 'Hay que aceptar la política de privacidad' });
   }
+  // Las condiciones de la prueba (07-10-2026, LCGC + LSSI), comprobadas aquí y registradas.
+  const acept = legal.validar('prueba', req.body?.aceptaciones);
+  if (!acept.ok) return res.status(400).json({ ok: false, error: acept.error, legal: true });
 
   const ahora = new Date().toISOString();
   const ip = (req.headers['x-forwarded-for'] || req.ip || '').toString().split(',')[0].trim();
@@ -91,6 +95,9 @@ router.post('/trial/registrar', limite, async (req, res) => {
     // Quien vuelve no genera una fila nueva: se le suma una descarga. Si no, un mismo
     // interesado que entra tres veces pareceria tres interesados.
     const previo = req.db.prepare('SELECT id, descargas FROM trials WHERE email = ?').get(email);
+    try {
+      legal.registrar(req.db, { para: 'prueba', email, req, documentos: acept.documentos, trialId: previo ? previo.id : null });
+    } catch (e) { console.error('[trials] no se pudo registrar la aceptación:', e.message); }
     if (previo) {
       req.db.prepare(`UPDATE trials SET descargas = descargas + 1, ultima_descarga = ?,
                       version_descargada = ?, nombre = ?, telefono = ?, clinica = ?, provincia = ?

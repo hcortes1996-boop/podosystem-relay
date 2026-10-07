@@ -79,6 +79,11 @@ app.use('/api', require('./routes/recuperacion'));
 app.use('/api', require('./routes/copias'));
 // Registro de quien se descarga la prueba, y resolucion de la ultima version publica.
 app.use('/api', require('./routes/trials'));
+// Las condiciones vigentes que la web pinta antes de pagar o descargar (07-10-2026)
+app.get('/api/legal/vigentes', (req, res) => {
+  const para = req.query.para === 'prueba' ? 'prueba' : 'compra';
+  res.json({ ok: true, para, documentos: require('./lib/legal').vigentes(para) });
+});
 // Pieza 6.0 — WhatsApp Cloud (recordatorios push notification a APK)
 app.use('/api', require('./routes/recordatorios'));
 // Pieza 8.3 — Stripe Checkout Sessions (POST /api/checkout/create-session)

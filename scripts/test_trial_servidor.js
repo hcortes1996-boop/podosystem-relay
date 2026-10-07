@@ -131,7 +131,8 @@ const HUELLA2 = '00112233445566778899aabbccddeeff';
   // Alguien se descarga la prueba dejando sus datos, y ese equipo empieza su trial.
   await fetch(`${BASE}/api/trial/registrar`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nombre: 'Ana', email: 'ana@ejemplo.test', telefono: '600123456', aceptaPrivacidad: true }),
+    body: JSON.stringify({ nombre: 'Ana', email: 'ana@ejemplo.test', telefono: '600123456', aceptaPrivacidad: true,
+      aceptaciones: require('../src/lib/legal').vigentes('prueba').map(d => ({ id: d.id, version: d.version })) }),
   });
   const idTrial = db.prepare('SELECT id FROM trials WHERE email = ?').get('ana@ejemplo.test').id;
   db.prepare('UPDATE trial_instalaciones SET trialId = ? WHERE hardwareId = ?').run(idTrial, HUELLA2);

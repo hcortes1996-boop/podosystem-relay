@@ -33,6 +33,7 @@
 const router   = require('express').Router();
 const Stripe   = require('stripe');
 const rateLimit = require('../middleware/rateLimit');
+const legal    = require('../lib/legal');
 
 const stripeClient = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder', {
   apiVersion: '2024-12-18.acacia',
@@ -114,6 +115,12 @@ router.post('/create-session', rateLimit, async (req, res) => {
     return res.status(400).json({ ok: false, error: 'Email invalido' });
   }
 
+  // 7b) Las condiciones (07-10-2026, LCGC + LSSI): las comprueba el SERVIDOR, no solo la página.
+  const acept = legal.validar('compra', body.aceptaciones);
+  if (!acept.ok) {
+    return res.status(400).json({ ok: false, error: acept.error, legal: true });
+  }
+
   // 8) Construir parametros de la Checkout Session
   const sessionParams = {
     mode: 'subscription',
@@ -140,6 +147,13 @@ router.post('/create-session', rateLimit, async (req, res) => {
   // 9) Crear session via Stripe API
   try {
     const session = await stripeClient.checkout.sessions.create(sessionParams);
+    // Se registra con la sesión de Stripe: el webhook la enlaza con la licencia que se cree.
+    try {
+      legal.registrar(req.db, { para: 'compra', email: emailTrim || null, req,
+                                documentos: acept.documentos, stripeSessionId: session.id });
+    } catch (e) {
+      console.error('[checkout/create-session] no se pudo registrar la aceptación:', e.message);
+    }
     return res.json({ ok: true, url: session.url, sessionId: session.id });
   } catch (err) {
     console.error('[checkout/create-session] Stripe error:', err.message);

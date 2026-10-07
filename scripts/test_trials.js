@@ -54,6 +54,8 @@ const registrar = (body) => fetch(`${BASE}/api/trial/registrar`, {
 const BUENO = {
   nombre: 'Ana Pérez', email: 'ana@ejemplo.test', telefono: '600112233',
   clinica: 'Clínica Ejemplo', provincia: 'Sevilla', aceptaPrivacidad: true,
+  // Las condiciones de la prueba (07-10-2026): sin ellas el servidor no deja descargar.
+  aceptaciones: require('../src/lib/legal').vigentes('prueba').map(d => ({ id: d.id, version: d.version })),
 };
 
 (async () => {

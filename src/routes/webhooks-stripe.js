@@ -197,7 +197,7 @@ function esc(s) {
 }
 
 // Email HTML de bienvenida con la clave de licencia (Pieza 8.6).
-function buildEmailLicencia({ nombre, plan, licenseKey }) {
+function buildEmailLicencia({ nombre, plan, licenseKey, confirmacion = '' }) {
   const planNombre = PLAN_NOMBRES[plan] || 'Clínica';
   return `
 <div style="font-family:Inter,Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff">
@@ -213,6 +213,7 @@ function buildEmailLicencia({ nombre, plan, licenseKey }) {
       <p style="margin:0;font-family:monospace;font-size:24px;font-weight:800;letter-spacing:.12em;color:#0f2137">${esc(licenseKey)}</p>
     </div>
     <p style="margin:0 0 20px;font-size:.9rem;color:#5a7080"><strong>Guarda este email</strong> — necesitarás la clave para activar el software.</p>
+    ${confirmacion}
     <div style="margin:0 0 24px;padding:18px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
       <p style="margin:0 0 10px;font-size:13px;font-weight:700;color:#1e40af">Próximos pasos</p>
       <ol style="margin:0;padding-left:20px;font-size:.9rem;color:#1e3a8a;line-height:1.8">
@@ -352,13 +353,19 @@ async function handleCheckoutCompleted(db, session) {
       .catch(err => console.error('[webhook-stripe/checkout] Netlify fallido:', err.message));
   }
 
+  // 3b. Las condiciones que aceptó al pagar (07-10-2026): se unen a la licencia, y el correo
+  //     las confirma con enlace a su copia fija (LSSI art. 28).
+  const legal = require('../lib/legal');
+  legal.enlazarLicencia(db, { stripeSessionId: session.id, licenciaId: licId, email: clienteEmail });
+  const confirmacion = legal.htmlConfirmacion(legal.documentosDe(db, { stripeSessionId: session.id }));
+
   // 4. Email de bienvenida con la clave (fire-and-forget; la licencia ya esta creada,
   //    si el email falla se loguea y el admin puede reenviar — no bloquea el webhook).
   const { sendMail } = require('../email');
   sendMail({
     to:      clienteEmail,
     subject: 'Bienvenido a PodoSystem — Tu clave de licencia',
-    html:    buildEmailLicencia({ nombre: clienteNombre, plan: planFinal, licenseKey }),
+    html:    buildEmailLicencia({ nombre: clienteNombre, plan: planFinal, licenseKey, confirmacion }),
   }).then(() => console.log(`[webhook-stripe/checkout] Email bienvenida enviado a ${clienteEmail}`))
     .catch(err => console.error(`[webhook-stripe/checkout] Email bienvenida FALLO (licencia ya creada): ${err.message}`));
 }

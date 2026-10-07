@@ -71,7 +71,9 @@ async function call(body) {
   const res = await fetch(`http://127.0.0.1:${port}/api/checkout/create-session`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify(body),
+    // Las condiciones de compra (07-10-2026), salvo que la prueba quiera probar su falta.
+    body:    JSON.stringify('aceptaciones' in body ? body : { ...body,
+      aceptaciones: require('../src/lib/legal').vigentes('compra').map(d => ({ id: d.id, version: d.version })) }),
   });
   const text = await res.text();
   let json = null;

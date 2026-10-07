@@ -1,0 +1,25 @@
+{
+  "_comentario": "Las versiones de los documentos legales que hay que aceptar. Para publicar una versión nueva: subir su PDF fijo a podosystem.es/legal/, añadirla aquí con su sha256 y desplegar. NUNCA se borra ni se cambia un PDF ya publicado: es la prueba de lo que aceptó cada cliente. Ver lib/legal.js.",
+  "documentos": [
+    {
+      "id": "condiciones",
+      "titulo": "Condiciones Generales",
+      "version": "2026-06-27",
+      "accion": "acepto",
+      "para": ["compra", "prueba"],
+      "ver": "https://podosystem.es/terminos",
+      "pdf": "https://podosystem.es/legal/condiciones-2026-06-27.pdf",
+      "sha256": "16c6828ceafcb604a211d30056fa5862854d3d0cb73b4a4e0e73b5942cb87fd0"
+    },
+    {
+      "id": "privacidad",
+      "titulo": "Política de Privacidad",
+      "version": "2026-05",
+      "accion": "leido",
+      "para": ["compra", "prueba"],
+      "ver": "https://podosystem.es/privacidad",
+      "pdf": "https://podosystem.es/legal/privacidad-2026-05.pdf",
+      "sha256": "16b059890a5d33961eaa42068ce173d66024b8e83ac662b23409a5130c6c8756"
+    }
+  ]
+}

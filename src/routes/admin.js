@@ -169,6 +169,64 @@ router.post('/api/licencias/verificar', (req, res) => {
  * nada aunque el servidor esté en `LIMPIEZA_MODO=aplicar`: aquí solo se MIRA. (El cierre de
  * páginas de prueba caducadas, que es reversible, sí se aplica en cualquier pasada.)
  */
+/**
+ * Las aceptaciones de condiciones (07-10-2026): la prueba de qué versión aceptó cada cliente.
+ * `?email=` filtra; sin él, las 200 últimas.
+ */
+router.get('/api/aceptaciones', authAdmin, (req, res) => {
+  const legal = require('../lib/legal');
+  legal.asegurarTabla(req.db);
+  const email = String(req.query.email || '').trim().toLowerCase();
+  const filas = email
+    ? req.db.prepare('SELECT * FROM aceptaciones_legales WHERE email = ? ORDER BY fecha DESC').all(email)
+    : req.db.prepare('SELECT * FROM aceptaciones_legales ORDER BY fecha DESC LIMIT 200').all();
+  res.json({ ok: true, aceptaciones: filas.map(f => ({ ...f, documentos: JSON.parse(f.documentos || '[]') })) });
+});
+
+/**
+ * Avisar a los clientes de una versión nueva de un documento (cláusula 12: 30 días antes).
+ * Manda el correo a cada licencia viva y APUNTA a quién y cuándo, para poder probar el aviso.
+ * Body: { documento, version, fechaEfecto (AAAA-MM-DD), resumen, ensayo? }. Con `ensayo: true`
+ * solo dice a quién se mandaría.
+ */
+router.post('/api/legal/avisar', authAdmin, async (req, res) => {
+  const legal = require('../lib/legal');
+  const { documento, version, fechaEfecto, resumen, ensayo } = req.body || {};
+  const doc = legal.VIGENTES.documentos.find(d => d.id === documento && d.version === version);
+  if (!doc) return res.status(400).json({ ok: false, error: 'Ese documento y versión no están en legal-vigentes.json' });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(fechaEfecto || ''))) return res.status(400).json({ ok: false, error: 'fechaEfecto AAAA-MM-DD' });
+  req.db.exec(`CREATE TABLE IF NOT EXISTS avisos_legales (
+    id TEXT PRIMARY KEY, documento TEXT, version TEXT, fechaEfecto TEXT, email TEXT, licenciaId TEXT,
+    enviadoEn TEXT, resultado TEXT)`);
+  const destinos = req.db.prepare(`SELECT id, clienteEmail, clienteNombre FROM licencias
+    WHERE clienteEmail IS NOT NULL AND clienteEmail <> ''
+      AND LOWER(COALESCE(estado,'')) NOT IN ('expired','revoked','revocada','cancelada','cancelled')`).all();
+  if (ensayo) return res.json({ ok: true, ensayo: true, destinos: destinos.map(d => d.clienteEmail) });
+  const { sendMail } = require('../email');
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const resultados = [];
+  for (const d of destinos) {
+    const id = 'avl_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    let resultado = 'enviado';
+    try {
+      await sendMail({ to: d.clienteEmail, subject: `Cambios en ${doc.titulo} de PodoSystem`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+          <p>Hola ${esc(d.clienteNombre || '')},</p>
+          <p>Te avisamos de que hay una nueva versión de <strong>${esc(doc.titulo)}</strong> (versión ${esc(doc.version)}),
+          que entrará en vigor el <strong>${esc(fechaEfecto)}</strong>.</p>
+          ${resumen ? `<p>${esc(resumen)}</p>` : ''}
+          <p>Puedes leerla y descargarla aquí: <a href="${esc(doc.pdf)}">${esc(doc.pdf)}</a></p>
+          <p>Si no estás de acuerdo, puedes cancelar tu suscripción antes de esa fecha sin ninguna penalización.
+          Si sigues usando el servicio después, se entenderá que la aceptas.</p>
+          <p>Francisco Román García · PodoSystem</p></div>` });
+    } catch (e) { resultado = 'fallo: ' + e.message; }
+    req.db.prepare('INSERT INTO avisos_legales VALUES (?,?,?,?,?,?,?,?)')
+      .run(id, doc.id, doc.version, fechaEfecto, d.clienteEmail, d.id, new Date().toISOString(), resultado);
+    resultados.push({ email: d.clienteEmail, resultado });
+  }
+  res.json({ ok: true, avisados: resultados });
+});
+
 router.get('/api/limpieza', authAdmin, (req, res) => {
   const lim = require('../lib/limpieza-clinicas');
   if (req.query.ahora === '1') {
