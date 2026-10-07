@@ -43,10 +43,19 @@ function asegurarTabla(db) {
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_acept_stripe ON aceptaciones_legales(stripeSessionId)'); } catch (_) {}
 }
 
+/** El texto exacto de la casilla: se pinta en la web y se GUARDA con la aceptación, como prueba de qué
+ *  declaró el cliente (por ejemplo, que contrata como profesional). */
+function textoCasilla({ titulo, articulo, version, accion, declaracion }) {
+  return (accion === 'acepto' ? 'He leído y acepto ' : 'He leído ') + (articulo || 'el') + ' ' + titulo +
+    ' (versión ' + version + ')' + (declaracion ? ', ' + declaracion : '');
+}
+
 /** Los documentos que hay que aceptar para `para` ('compra' | 'prueba'). */
 function vigentes(para) {
   return VIGENTES.documentos.filter(d => d.para.includes(para))
-    .map(({ id, titulo, articulo, version, accion, ver, pdf, sha256 }) => ({ id, titulo, articulo: articulo || 'el', version, accion, ver, pdf, sha256 }));
+    .map(({ id, titulo, articulo, version, accion, declaracion, ver, pdf, sha256 }) =>
+      ({ id, titulo, articulo: articulo || 'el', version, accion, declaracion: declaracion || null, ver, pdf, sha256,
+         casilla: textoCasilla({ titulo, articulo, version, accion, declaracion }) }));
 }
 
 /**
@@ -65,7 +74,7 @@ function validar(para, aceptaciones) {
       ? 'Las condiciones han cambiado desde que abriste la página. Recárgala y vuelve a aceptarlas.'
       : 'Falta aceptar: ' + faltan.map(d => d.titulo).join(', ') + '.' };
   }
-  return { ok: true, documentos: docs.map(d => ({ id: d.id, version: d.version, sha256: d.sha256, accion: d.accion })) };
+  return { ok: true, documentos: docs.map(d => ({ id: d.id, version: d.version, sha256: d.sha256, accion: d.accion, casilla: d.casilla })) };
 }
 
 function ipDe(req) {

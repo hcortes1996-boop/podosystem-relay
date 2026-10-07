@@ -71,6 +71,8 @@ setTimeout(async () => {
     prueba(fila && fila.email === 'cliente@ejemplo.test' && fila.ip === '203.0.113.7' && fila.userAgent === 'Navegador/1' &&
            /^\d{4}-\d{2}-\d{2}T/.test(fila.fecha), 'guarda correo, IP real (no la del proxy), navegador y fecha');
     prueba(JSON.parse(fila.documentos).length === val.documentos.length, 'y qué versión de cada documento, con su huella');
+    prueba(JSON.parse(fila.documentos).some(d => d.id === 'condiciones' && /actividad empresarial o profesional/.test(d.casilla)),
+      'y el texto exacto de cada casilla, con la declaración de contratar como profesional');
 
     console.log('\n── Tras el pago ──');
     prueba(legal.enlazarLicencia(db, { stripeSessionId: 'cs_test_123', licenciaId: 'LIC1', email: 'cliente@ejemplo.test' }),
