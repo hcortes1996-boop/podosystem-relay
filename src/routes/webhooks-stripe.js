@@ -223,6 +223,7 @@ function buildEmailLicencia({ nombre, plan, licenseKey, confirmacion = '' }) {
         <li>Pega tu clave y pulsa <strong>«Activar licencia»</strong></li>
         <li>¡Listo! Ya puedes empezar</li>
       </ol>
+      <p style="margin:12px 0 0;font-size:.9rem;color:#1e3a8a">📱 <strong>App móvil (Android):</strong> descárgala en <a href="https://podosystem.es/app" style="color:#2ecc9a">podosystem.es/app</a>, con los pasos para instalarla. Android avisará de que es una app desconocida: es normal, porque no viene de Google Play.</p>
     </div>
     <p style="margin:24px 0 0;font-size:.85rem;color:#aaa">¿Dudas? Escríbenos a <a href="mailto:soporte@podosystem.es" style="color:#2ecc9a">soporte@podosystem.es</a></p>
     <p style="margin:16px 0 0;font-size:.85rem;color:#5a7080">Un saludo,<br>Francisco Román García · PodoSystem</p>

@@ -1160,6 +1160,10 @@ ${seccionCitas}
 
 Descarga PodoSystem en: https://podosystem.es
 
+📱 App móvil (Android): https://podosystem.es/app
+   Ahí están los pasos para instalarla. Android avisará de que es una
+   app desconocida: es normal, porque no viene de Google Play.
+
 ─────────────────────────────────────
 
 ¿Tienes alguna duda? Escríbenos a soporte@podosystem.es o llámanos.
