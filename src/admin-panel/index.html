@@ -27,12 +27,23 @@
       <p class="text-sm text-gray-500 mt-1">Acceso exclusivo para administradores</p>
     </div>
     <form id="login-form" class="space-y-4">
-      <input type="password" id="token-input" placeholder="Admin token"
+      <input type="password" id="token-input" placeholder="Contraseña" autocomplete="current-password"
         class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 transition">
+      <!-- Primera vez: el QR para enlazar Google Authenticator -->
+      <div id="login-alta" class="hidden text-center bg-blue-50 border border-blue-100 rounded-xl p-4">
+        <p class="text-sm font-semibold text-gray-800 mb-1">Activa la doble autenticación</p>
+        <p class="text-xs text-gray-600 mb-3">Abre <b>Google Authenticator</b> → <b>+</b> → <b>Escanear un código QR</b>,
+          y escribe abajo el código de 6 cifras que te dé.</p>
+        <img id="login-qr" alt="QR" class="mx-auto rounded-lg bg-white p-1" width="200" height="200">
+        <p class="text-[11px] text-gray-500 mt-2">¿No puedes escanear? Clave: <span id="login-secreto" class="font-mono break-all"></span></p>
+      </div>
+      <input type="text" id="codigo-input" placeholder="Código de Google Authenticator" inputmode="numeric" autocomplete="one-time-code" maxlength="7"
+        class="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-sm tracking-widest text-center focus:outline-none focus:border-blue-500 transition">
       <div id="login-error" class="hidden bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-sm text-red-700"></div>
       <button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-semibold text-sm transition">
         Entrar
       </button>
+      <p class="text-[11px] text-gray-400 text-center">La sesión dura 12 horas o hasta cerrar el navegador.</p>
     </form>
   </div>
 </div>
@@ -47,12 +58,11 @@
     </div>
     <div class="flex items-center gap-4">
       <nav class="flex gap-1">
-        <button onclick="showTab('dashboard')" data-tab="dashboard" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Dashboard</button>
+        <button onclick="showTab('dashboard')" data-tab="dashboard" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Resumen</button>
         <button onclick="showTab('licencias')" data-tab="licencias" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Licencias</button>
         <button onclick="showTab('clinicas')" data-tab="clinicas" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Clínicas relay</button>
-        <button onclick="showTab('trials')" data-tab="trials" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Pruebas</button>
+        <button onclick="showTab('trials')" data-tab="trials" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition flex items-center gap-1.5">Pruebas <span id="badge-pruebas" class="hidden bg-amber-400 text-[#1E3A5F] text-xs rounded-full px-1.5 py-0.5 font-bold leading-none"></span></button>
         <button onclick="showTab('nuevo')" data-tab="nuevo" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">+ Nuevo cliente</button>
-        <button onclick="showTab('solicitudes')" data-tab="solicitudes" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition flex items-center gap-1.5">Solicitudes <span id="badge-solicitudes" class="hidden bg-red-500 text-white text-xs rounded-full px-1.5 py-0.5 font-bold leading-none"></span></button>
       </nav>
       <button onclick="logout()" class="text-white/50 hover:text-red-300 text-sm transition">Salir</button>
     </div>
@@ -61,33 +71,23 @@
   <!-- Content -->
   <main class="max-w-7xl mx-auto px-6 py-6">
 
-    <!-- DASHBOARD -->
+    <!-- RESUMEN (16-10-2026): lo que pasa y lo que hay que hacer. El de antes contaba las pruebas
+         donde ya no están y calculaba ingresos a 19 € sobre licencias que no pagan. -->
     <div id="tab-dashboard" class="hidden fade">
-      <h2 class="text-xl font-bold text-gray-800 mb-5">Panel general</h2>
-      <div id="stats-cards" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 col-span-2 md:col-span-1">
-          <p class="text-xs text-gray-500 mb-1">Licencias activas</p>
-          <p id="s-activas" class="text-3xl font-bold text-green-600">—</p>
+      <h2 class="text-xl font-bold text-gray-800 mb-5">Resumen</h2>
+      <div id="r-tarjetas" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-6"></div>
+      <div class="grid lg:grid-cols-3 gap-6">
+        <div class="lg:col-span-2">
+          <h3 class="text-sm font-semibold text-gray-700 mb-3">Qué hay que hacer</h3>
+          <div id="r-avisos" class="space-y-2"></div>
+          <h3 class="text-sm font-semibold text-gray-700 mt-6 mb-3">Pruebas que se acaban esta semana</h3>
+          <div id="r-acaban" class="bg-white rounded-xl border border-gray-100"></div>
         </div>
-        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-          <p class="text-xs text-gray-500 mb-1">En periodo trial</p>
-          <p id="s-trial" class="text-3xl font-bold text-amber-500">—</p>
-        </div>
-        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-          <p class="text-xs text-gray-500 mb-1">Expiradas</p>
-          <p id="s-expiradas" class="text-3xl font-bold text-red-500">—</p>
-        </div>
-        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-          <p class="text-xs text-gray-500 mb-1">Clínicas relay</p>
-          <p id="s-clinicas" class="text-3xl font-bold text-blue-600">—</p>
-        </div>
-        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-          <p class="text-xs text-gray-500 mb-1">Ingresos/mes (est.)</p>
-          <p id="s-ingresos" class="text-3xl font-bold text-[#1E3A5F]">—</p>
-        </div>
-        <div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 cursor-pointer hover:border-amber-300 transition" onclick="showTab('solicitudes')">
-          <p class="text-xs text-gray-500 mb-1">Solicitudes pendientes</p>
-          <p id="s-solicitudes" class="text-3xl font-bold text-amber-500">—</p>
+        <div>
+          <h3 class="text-sm font-semibold text-gray-700 mb-3">Versiones en uso</h3>
+          <div id="r-flota" class="bg-white rounded-xl border border-gray-100 p-4 text-sm"></div>
+          <h3 class="text-sm font-semibold text-gray-700 mt-6 mb-3">Seguridad del panel</h3>
+          <div id="r-seguridad" class="bg-white rounded-xl border border-gray-100 p-4 text-sm"></div>
         </div>
       </div>
     </div>
@@ -233,18 +233,21 @@
     <!-- Quien se descarga la prueba. Antes el boton de demo.html iba directo al EXE y no
          se sabia quien probaba el producto ni cuantos acababan comprando. -->
     <div id="tab-trials" class="hidden fade">
+      <h2 class="text-xl font-bold text-gray-800 mb-1">Pruebas</h2>
+      <p class="text-sm text-gray-500 mb-5">Quien se descarga la prueba deja nombre y teléfono. Esta es tu lista de llamadas:
+        apunta en qué punto está cada uno y llámale antes de que se le acabe.</p>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6" id="trials-stats"></div>
       <div class="bg-white rounded-xl border border-gray-100 overflow-hidden">
         <table class="w-full">
           <thead class="bg-gray-50">
             <tr>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Interesado</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Teléfono</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Quién</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Clínica</th>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Descargó</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Versión</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Estado</th>
-              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Acciones</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">¿Lo usa?</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Seguimiento</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Notas</th>
+              <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase"></th>
             </tr>
           </thead>
           <tbody id="trials-tbody" class="divide-y divide-gray-50">
@@ -285,8 +288,14 @@
       </p>
     </div>
 
-    <div id="tab-solicitudes" class="hidden fade">
-      <div class="flex items-center justify-between mb-5">
+  </main>
+</div>
+
+<!-- MODAL: Solicitudes de alta de Citas Web. Llegan del botón «Solicitar alta» del programa
+     (alta-relay.html). Ya no son pestaña: casi nunca hay ninguna, y si entra una sale en el resumen. -->
+<div id="modal-solicitudes" class="hidden fixed inset-0 bg-black/40 flex items-center justify-center z-40">
+  <div class="bg-gray-50 rounded-2xl shadow-2xl p-6 w-full max-w-3xl mx-4 max-h-[85vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-5 gap-3 flex-wrap">
         <h2 class="text-xl font-bold text-gray-800">Solicitudes de alta</h2>
         <div class="flex gap-2 text-sm">
           <button onclick="loadSolicitudesAlta('pendiente')" id="f-pendiente"
@@ -302,8 +311,8 @@
       <div id="solicitudes-list" class="space-y-4">
         <p class="text-center text-gray-400 text-sm py-8">Cargando…</p>
       </div>
-    </div>
-  </main>
+      <div class="text-right mt-4"><button onclick="hideModal('modal-solicitudes')" class="px-4 py-2 border-2 border-gray-200 rounded-lg text-sm font-medium text-gray-600 bg-white">Cerrar</button></div>
+  </div>
 </div>
 
 <!-- MODAL: Rechazar solicitud -->
@@ -464,56 +473,73 @@
 
 <script>
 // ── State ───────────────────────────────────────────────────────────────────
-let TOKEN = localStorage.getItem('ps_admin_token') || '';
+// Lo que se guarda es la SESIÓN (12 h), no la contraseña, y en sessionStorage: se va al cerrar el
+// navegador. Antes era la contraseña en localStorage, para siempre (16-10-2026).
+try { localStorage.removeItem('ps_admin_token'); } catch (_) {}
+let TOKEN = '';
+try { TOKEN = sessionStorage.getItem('ps_admin_sesion') || ''; } catch (_) {}
 let currentTab = 'dashboard';
 let emailDraftText = '';
 
 // ── Auth ────────────────────────────────────────────────────────────────────
-async function tryLogin(token) {
-  const res = await fetch('/admin/api/stats', { headers: { Authorization: `Bearer ${token}` } });
-  if (res.status === 401) return false;
-  return true;
+function entrarEnPanel() {
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  showTab('dashboard');
+}
+
+function errorLogin(texto) {
+  const el = document.getElementById('login-error');
+  el.textContent = texto;
+  el.classList.toggle('hidden', !texto);
 }
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const token = document.getElementById('token-input').value.trim();
-  const ok = await tryLogin(token);
-  if (ok) {
-    TOKEN = token;
-    localStorage.setItem('ps_admin_token', token);
-    document.getElementById('login-screen').classList.add('hidden');
-    document.getElementById('app').classList.remove('hidden');
-    showTab('dashboard');
-    loadStats();
-  } else {
-    const el = document.getElementById('login-error');
-    el.textContent = 'Token incorrecto.';
-    el.classList.remove('hidden');
+  errorLogin('');
+  const password = document.getElementById('token-input').value.trim();
+  const codigo = document.getElementById('codigo-input').value.replace(/\s/g, '');
+  let r;
+  try {
+    const res = await fetch('/admin/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                  body: JSON.stringify({ password, codigo }) });
+    r = await res.json();
+  } catch (_) { return errorLogin('No hay conexión con el servidor.'); }
+
+  if (r.ok && r.token) {
+    TOKEN = r.token;
+    try { sessionStorage.setItem('ps_admin_sesion', TOKEN); } catch (_) {}
+    document.getElementById('codigo-input').value = '';
+    document.getElementById('login-alta').classList.add('hidden');
+    if (r.recienActivada) alert('✅ Doble autenticación activada.\n\nA partir de ahora el panel pedirá siempre la contraseña y el código del móvil.');
+    return entrarEnPanel();
   }
+  if (r.alta && r.qr) {
+    // Primera vez: la contraseña es buena y falta enlazar el móvil
+    document.getElementById('login-qr').src = r.qr;
+    document.getElementById('login-secreto').textContent = r.secreto.replace(/(.{4})/g, '$1 ').trim();
+    document.getElementById('login-alta').classList.remove('hidden');
+    document.getElementById('codigo-input').focus();
+    return;
+  }
+  errorLogin(r.error || 'No se pudo entrar.');
 });
 
-function logout() {
+async function logout() {
+  try { await fetch('/admin/api/logout', { method: 'POST', headers: { Authorization: `Bearer ${TOKEN}` } }); } catch (_) {}
   TOKEN = '';
-  localStorage.removeItem('ps_admin_token');
+  try { sessionStorage.removeItem('ps_admin_sesion'); } catch (_) {}
   document.getElementById('login-screen').classList.remove('hidden');
   document.getElementById('app').classList.add('hidden');
 }
 
 // ── Init ────────────────────────────────────────────────────────────────────
 (async () => {
-  if (TOKEN) {
-    const ok = await tryLogin(TOKEN);
-    if (ok) {
-      document.getElementById('login-screen').classList.add('hidden');
-      document.getElementById('app').classList.remove('hidden');
-      showTab('dashboard');
-      loadStats();
-      return;
-    }
-    TOKEN = '';
-    localStorage.removeItem('ps_admin_token');
-  }
+  if (!TOKEN) return;
+  const res = await fetch('/admin/api/resumen', { headers: { Authorization: `Bearer ${TOKEN}` } }).catch(() => null);
+  if (res && res.ok) return entrarEnPanel();
+  TOKEN = '';
+  try { sessionStorage.removeItem('ps_admin_sesion'); } catch (_) {}
 })();
 
 // ── Tabs ────────────────────────────────────────────────────────────────────
@@ -526,10 +552,9 @@ function showTab(tab) {
     b.classList.toggle('text-white/70', b.dataset.tab !== tab);
   });
   document.getElementById(`tab-${tab}`).classList.remove('hidden');
-  if (tab === 'dashboard')   loadStats();
+  if (tab === 'dashboard')   loadResumen();
   if (tab === 'licencias')   loadLicencias();
   if (tab === 'clinicas')    loadClinicas();
-  if (tab === 'solicitudes') loadSolicitudesAlta('pendiente');
   if (tab === 'trials')      loadTrials();
   // Al salir de "nuevo cliente", limpiar el formulario y ocultar el resultado
   if (tab !== 'nuevo') {
@@ -541,6 +566,11 @@ function showTab(tab) {
   }
 }
 
+function abrirSolicitudes() {
+  showModal('modal-solicitudes');
+  loadSolicitudesAlta('pendiente');
+}
+
 // ── API helpers ─────────────────────────────────────────────────────────────
 async function api(method, path, body) {
   const res = await fetch(path, {
@@ -548,23 +578,81 @@ async function api(method, path, body) {
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${TOKEN}` },
     body: body ? JSON.stringify(body) : undefined,
   });
+  // Sesión caducada (12 h) o cerrada: de vuelta a la puerta, sin dejar el panel a medias.
+  if (res.status === 401) { logout(); return { ok: false, error: 'La sesión ha caducado' }; }
   return res.json();
 }
 
-// ── Dashboard ───────────────────────────────────────────────────────────────
-async function loadStats() {
-  const { stats } = await api('GET', '/admin/api/stats');
-  if (!stats) return;
-  document.getElementById('s-activas').textContent    = stats.activas;
-  document.getElementById('s-trial').textContent      = stats.trial;
-  document.getElementById('s-expiradas').textContent  = stats.expiradas;
-  document.getElementById('s-clinicas').textContent   = stats.totalClinicas;
-  document.getElementById('s-ingresos').textContent   = stats.ingresosMes + '€';
-  const n = stats.solicitudesPendientes || 0;
-  document.getElementById('s-solicitudes').textContent = n;
-  const badge = document.getElementById('badge-solicitudes');
-  if (n > 0) { badge.textContent = n; badge.classList.remove('hidden'); }
-  else        { badge.classList.add('hidden'); }
+// ── Resumen ─────────────────────────────────────────────────────────────────
+const NOMBRE_PLAN = { basico: 'Básico', clinica: 'Clínica', red: 'Red' };
+const NOMBRE_SEGUIMIENTO = { sin_contactar: 'Sin contactar', contactado: 'Contactado', interesado: 'Interesado', no_interesa: 'No le interesa' };
+
+async function loadResumen() {
+  const r = await api('GET', '/admin/api/resumen');
+  if (!r.ok) return;
+  const tarjeta = (titulo, valor, pie, color = 'text-[#1E3A5F]', ir = '') =>
+    `<div class="bg-white rounded-xl p-4 shadow-sm border border-gray-100 ${ir ? 'cursor-pointer hover:border-[#2ECC9A] transition' : ''}" ${ir ? `onclick="showTab('${ir}')"` : ''}>
+       <p class="text-xs text-gray-500 mb-1">${titulo}</p>
+       <p class="text-3xl font-bold ${color}">${valor}</p>
+       ${pie ? `<p class="text-[11px] text-gray-400 mt-1">${pie}</p>` : ''}
+     </div>`;
+  const planes = Object.entries(r.clientes.porPlan).map(([p, n]) => `${n} ${NOMBRE_PLAN[p] || p}`).join(' · ');
+  document.getElementById('r-tarjetas').innerHTML = [
+    tarjeta('Clientes que pagan', r.clientes.pagan, planes || (r.clientes.cortesia ? `y ${r.clientes.cortesia} sin pagar (manuales)` : ''), 'text-green-600', 'licencias'),
+    tarjeta('Ingresos al mes', r.clientes.ingresosMes + ' €', 'solo Stripe, IVA incluido'),
+    tarjeta('Pruebas en marcha', r.pruebas.enMarcha, `${r.pruebas.acabanPronto.length} acaban esta semana`, 'text-amber-500', 'trials'),
+    tarjeta('Descargas de la prueba', r.pruebas.descargasTotal, `${r.pruebas.descargas30} en 30 días · ${r.pruebas.sinContactar} sin contactar`, 'text-[#1E3A5F]', 'trials'),
+    tarjeta('Webs de citas', r.clinicasWeb, 'clínicas conectadas al relay', 'text-blue-600', 'clinicas'),
+  ].join('');
+
+  const badge = document.getElementById('badge-pruebas');
+  const nb = r.pruebas.sinContactar + r.pruebas.acabanPronto.length;
+  badge.textContent = nb; badge.classList.toggle('hidden', !nb);
+
+  const avisos = document.getElementById('r-avisos');
+  avisos.innerHTML = r.avisos.length ? r.avisos.map(a => {
+    const cls = a.nivel === 'alerta' ? 'bg-red-50 border-red-200 text-red-800' : 'bg-amber-50 border-amber-200 text-amber-900';
+    const accion = a.ir === 'solicitudes' ? 'abrirSolicitudes()' : a.ir ? `showTab('${a.ir}')` : '';
+    return `<div class="px-4 py-2.5 rounded-xl border text-sm ${cls} ${accion ? 'cursor-pointer hover:shadow-sm' : ''}" ${accion ? `onclick="${accion}"` : ''}>
+              ${a.nivel === 'alerta' ? '⚠️' : '•'} ${esc(a.texto)} ${accion ? '<span class="float-right opacity-60">→</span>' : ''}</div>`;
+  }).join('') : '<div class="px-4 py-3 rounded-xl border bg-[#f0faf7] border-[#2ECC9A]/40 text-sm text-[#1E3A5F]">✅ Todo en orden. No hay nada pendiente.</div>';
+
+  const acaban = r.pruebas.acabanPronto;
+  document.getElementById('r-acaban').innerHTML = acaban.length ? acaban.map(i => `
+    <div class="px-4 py-3 border-b border-gray-50 last:border-0 flex items-center justify-between gap-3 text-sm">
+      <div>
+        <p class="font-medium text-gray-800">${i.persona ? esc(i.persona.nombre) : `Equipo ${esc(i.huella)}… <span class="text-xs text-gray-400">(sin datos de contacto)</span>`}</p>
+        <p class="text-xs text-gray-400">${i.persona ? esc(i.persona.clinica || '') + ' · ' + esc(NOMBRE_SEGUIMIENTO[i.persona.seguimiento || 'sin_contactar']) : ''}</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="px-2 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">${i.diasRestantes === 1 ? '1 día' : i.diasRestantes + ' días'}</span>
+        ${i.persona && i.persona.telefono ? botonWhatsApp(i.persona.telefono, i.persona.nombre, i.diasRestantes) : ''}
+      </div>
+    </div>`).join('') : '<p class="px-4 py-3 text-sm text-gray-400">Ninguna.</p>';
+
+  const v = Object.entries(r.flota.versiones).sort((a, b) => b[0].localeCompare(a[0], undefined, { numeric: true }));
+  document.getElementById('r-flota').innerHTML = (r.flota.ultimaVersion ? `<p class="text-xs text-gray-500 mb-2">Última publicada: <b>${esc(r.flota.ultimaVersion)}</b></p>` : '') +
+    (v.length ? v.map(([ver, n]) => `<div class="flex justify-between py-1"><span class="font-mono ${ver === r.flota.ultimaVersion ? 'text-green-700' : 'text-gray-700'}">${esc(ver)}</span><span class="text-gray-500">${n} equipo${n === 1 ? '' : 's'}</span></div>`).join('')
+              : '<p class="text-gray-400">Sin datos</p>');
+
+  document.getElementById('r-seguridad').innerHTML = `
+    <p>${r.seguridad.dosPasos ? '✅ Doble autenticación activada' : '⚠️ Doble autenticación SIN activar'}</p>
+    <p class="mt-1 text-gray-500">${r.seguridad.rechazados7} intento(s) rechazados en 7 días</p>`;
+}
+
+// WhatsApp con el mensaje ya escrito. Solo se abre: lo envía Francisco, desde su móvil o su PC.
+function botonWhatsApp(telefono, nombre, diasRestantes) {
+  let t = String(telefono || '').replace(/\D/g, '');
+  if (t.length === 9) t = '34' + t;
+  if (t.length < 11) return '';
+  const nombrePila = String(nombre || '').trim().split(/\s+/)[0] || '';
+  const cuando = diasRestantes != null && diasRestantes <= 7
+    ? `Te quedan ${diasRestantes === 1 ? 'un día' : diasRestantes + ' días'} de prueba y quería saber`
+    : 'Quería saber';
+  const texto = `Hola ${nombrePila}, soy Francisco Román, el podólogo que ha hecho PodoSystem. Vi que te descargaste la prueba. ` +
+                `${cuando} qué tal te está yendo y si te puedo ayudar a configurar algo.`;
+  return `<a href="https://wa.me/${t}?text=${encodeURIComponent(texto)}" target="_blank" rel="noopener"
+             class="text-xs px-2.5 py-1.5 bg-[#25D366] text-white rounded-lg font-semibold hover:opacity-90 whitespace-nowrap">WhatsApp</a>`;
 }
 
 // ── Licencias ───────────────────────────────────────────────────────────────
@@ -612,9 +700,9 @@ async function loadLicencias() {
       </td>
       <td class="px-4 py-3">${planTag(l.plan)}</td>
       <td class="px-4 py-3">
-        ${l.fuente === 'lemonsqueezy'
-          ? '<span class="px-2 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-700">LemonSqueezy</span>'
-          : '<span class="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">manual</span>'}
+        ${l.fuente === 'stripe'
+          ? '<span class="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Stripe · paga</span>'
+          : `<span class="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">${esc(l.fuente || 'manual')}</span>`}
       </td>
       <td class="px-4 py-3 font-mono text-xs text-gray-500">${l.suscripcionId ? esc(l.suscripcionId) : '—'}</td>
       <td class="px-4 py-3 text-xs text-gray-500">${l.activadaEn ? l.activadaEn.slice(0,10) : '—'}</td>
@@ -630,7 +718,7 @@ async function loadLicencias() {
           title="El cliente ha cambiado de ordenador y no puede usar el código por correo"
           class="text-xs px-3 py-1.5 bg-amber-50 text-amber-800 rounded-lg hover:bg-amber-100 transition font-medium">🔓 Liberar</button>`
         : `<span class="text-xs px-3 py-1.5 text-gray-400" title="No tiene ningún equipo asignado: el próximo que active se la queda">libre</span>`}
-        <button onclick="eliminarLicencia('${l.id}', '${esc(l.clienteNombre)}', ${l.fuente === 'lemonsqueezy'})"
+        <button onclick="eliminarLicencia('${l.id}', '${esc(l.clienteNombre)}', ${l.fuente === 'stripe'})"
           class="text-xs px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition font-medium">Eliminar</button>
       </td>
     </tr>
@@ -751,9 +839,11 @@ async function liberarLicencia() {
   setTimeout(() => hideModal('modal-liberar'), 4000);
 }
 
-async function eliminarLicencia(id, nombre, esLemonSqueezy = false) {
-  const aviso = esLemonSqueezy
-    ? `⚠️ Esta licencia proviene de LemonSqueezy.\n\nEsto cancelará también la suscripción en LemonSqueezy.\n\n¿Eliminar licencia de ${nombre}?`
+async function eliminarLicencia(id, nombre, esStripe = false) {
+  // Borrar la licencia NO cancela la suscripción: eso se hace en Stripe. Si paga y se borra aquí,
+  // seguiría cobrándose sin poder usar el programa.
+  const aviso = esStripe
+    ? `⚠️ ${nombre} PAGA por Stripe.\n\nBorrar la licencia aquí NO cancela la suscripción: seguiría cobrándose.\nCancélala primero en Stripe.\n\n¿Eliminar la licencia de todos modos?`
     : `¿Eliminar licencia de ${nombre}? Esta acción no se puede deshacer.`;
   if (!confirm(aviso)) return;
   await api('DELETE', `/admin/api/licencias/${id}`);
@@ -812,10 +902,7 @@ async function loadClinicas() {
       <td class="px-4 py-3 text-xs text-gray-500">${c.createdAt ? c.createdAt.slice(0,10) : '—'}</td>
       <td class="px-4 py-3"><span class="px-2 py-1 rounded-full text-xs font-semibold ${c.activa ? 'tag-active' : 'tag-blocked'}">${c.activa ? 'Activa' : 'Inactiva'}</span></td>
       <td class="px-4 py-3 flex gap-1.5 flex-wrap">
-        ${c.webUrl
-          ? `<button onclick="redeployClinica('${esc(c.id)}', '${esc(c.nombre)}')"
-              class="text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition font-medium">↻ Redeploy web</button>`
-          : `<button onclick="activarWebClinica('${esc(c.id)}', '${esc(c.nombre)}', this)"
+        ${c.webUrl ? '' : `<button onclick="activarWebClinica('${esc(c.id)}', '${esc(c.nombre)}', this)"
               class="text-xs px-3 py-1.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">🚀 Activar web pública</button>`}
         <button onclick="eliminarClinica('${esc(c.id)}', '${esc(c.nombre)}')"
           class="text-xs px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition font-medium">Eliminar</button>
@@ -839,18 +926,8 @@ async function editarWebUrl(id, actual) {
   else alert('Error: ' + res.error);
 }
 
-async function redeployClinica(id, nombre) {
-  if (!confirm(`¿Redesplegar la web de citas de "${nombre}"?\n\nSe volverá a generar el ZIP con el template actual y se subirá al sitio Netlify existente. La URL no cambia.`)) return;
-  const btn = [...document.querySelectorAll('button')].find(b => b.textContent.includes('Redeploy web') && b.getAttribute('onclick')?.includes(id));
-  if (btn) { btn.disabled = true; btn.textContent = 'Desplegando…'; }
-  const res = await api('POST', `/admin/api/clinicas/${id}/redeploy`);
-  if (btn) { btn.disabled = false; btn.textContent = '↻ Redeploy web'; }
-  if (res.ok) {
-    alert(`✅ Redeploy completado para "${nombre}".\n\nURL: ${res.webUrl || '(sin cambios)'}`);
-  } else {
-    alert(`❌ Error al redesplegar "${nombre}":\n\n${res.error || 'Error desconocido'}`);
-  }
-}
+// «↻ Redeploy web» retirado (16-10-2026): las webs piden la página de citas al relay y
+// redesplegar pisaba ese proxy con una copia congelada. Ver routes/admin.js.
 
 // ── Activar web pública (deploy inicial manual desde admin panel) ──────────
 async function activarWebClinica(id, nombre, btn) {
@@ -1035,27 +1112,38 @@ async function loadTrials() {
          ${extra ? `<p class="text-xs text-gray-400 mt-0.5">${extra}</p>` : ""}
        </div>`;
 
+    const sinContactar = d.trials.filter(t => t.seguimiento === 'sin_contactar').length;
     cajas.innerHTML = [
-      caja("Han probado", s.total ?? 0),
-      caja("Últimos 30 días", s.ultimos30 ?? 0),
-      caja("Han comprado", s.convertidos ?? 0),
+      caja("Han descargado", s.total ?? 0, `${s.ultimos30 ?? 0} en los últimos 30 días`),
+      caja("Sin contactar", sinContactar, "llámales"),
+      caja("Equipos probando", s.instalacionesActivas ?? 0, "con la prueba en marcha"),
       // null y no 0 cuando no hay nadie: un 0 % haria pensar que nadie convierte.
-      caja("Conversión", s.porcentaje === null || s.porcentaje === undefined ? "—" : s.porcentaje + " %",
+      caja("Han comprado", (s.convertidos ?? 0) + (s.porcentaje === null || s.porcentaje === undefined ? "" : ` · ${s.porcentaje} %`),
            "cruzando correos: es un suelo"),
     ].join("");
 
     if (!d.trials.length) {
       tbody.innerHTML = `<tr><td colspan="7" class="px-4 py-6 text-center text-gray-400 text-sm">Todavía no se ha descargado nadie la prueba</td></tr>`;
+      pintarInstalaciones(d.instalaciones || [], s);
       return;
     }
 
-    tbody.innerHTML = d.trials.map(t => `
-      <tr class="hover:bg-gray-50 transition">
+    const colorSeg = { sin_contactar: 'border-amber-300 bg-amber-50', contactado: 'border-blue-200 bg-blue-50',
+                       interesado: 'border-green-300 bg-green-50', no_interesa: 'border-gray-200 bg-gray-50 text-gray-500' };
+    tbody.innerHTML = d.trials.map(t => {
+      const eq = t.equipo;
+      const usa = t.convertido ? `<span class="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Cliente</span>`
+        : !eq ? `<span class="text-xs text-gray-400">No lo ha abierto</span>`
+        : `<span class="px-2 py-1 rounded-full text-xs font-semibold ${eq.diasRestantes === 0 ? 'bg-gray-100 text-gray-600' : eq.diasRestantes <= 7 ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-700'}">
+             ${eq.diasRestantes === 0 ? 'Terminada' : `le quedan ${eq.diasRestantes} d`}</span>
+           <span class="block text-[10px] text-gray-400 mt-0.5">${eq.vistas} arranques · ${eq.ultimaVista ? 'visto ' + eq.ultimaVista.slice(0,10) : ''}</span>`;
+      return `
+      <tr class="hover:bg-gray-50 transition align-top">
         <td class="px-4 py-3">
           <p class="font-medium text-gray-800 text-sm">${esc(t.nombre)}</p>
+          <p class="text-xs text-gray-500">${esc(t.telefono || "—")}</p>
           <p class="text-xs text-gray-400">${esc(t.email)}</p>
         </td>
-        <td class="px-4 py-3 text-sm text-gray-600">${esc(t.telefono || "—")}</td>
         <td class="px-4 py-3 text-sm text-gray-600">
           ${esc(t.clinica || "—")}
           ${t.provincia ? `<span class="block text-xs text-gray-400">${esc(t.provincia)}</span>` : ""}
@@ -1064,17 +1152,25 @@ async function loadTrials() {
           ${t.creadaEn ? t.creadaEn.slice(0,10) : "—"}
           <span class="block text-[10px] text-gray-400">hace ${t.diasDesdeDescarga} d${t.descargas > 1 ? ` · ${t.descargas} veces` : ""}</span>
         </td>
-        <td class="px-4 py-3 text-xs font-mono text-gray-500">${esc(t.version_descargada || "—")}</td>
+        <td class="px-4 py-3">${usa}</td>
         <td class="px-4 py-3">
-          ${t.convertido
-            ? `<span class="px-2 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">Cliente</span>`
-            : `<span class="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-600">Probando</span>`}
+          <select onchange="guardarSeguimiento('${esc(t.id)}', { seguimiento: this.value })"
+            class="text-xs px-2 py-1.5 rounded-lg border-2 ${colorSeg[t.seguimiento] || ''}">
+            ${Object.entries(NOMBRE_SEGUIMIENTO).map(([k, v]) => `<option value="${k}" ${k === t.seguimiento ? 'selected' : ''}>${v}</option>`).join('')}
+          </select>
+          ${t.seguimiento_en ? `<span class="block text-[10px] text-gray-400 mt-1">${t.seguimiento_en.slice(0,10)}</span>` : ''}
         </td>
         <td class="px-4 py-3">
-          <button onclick="borrarTrial('${t.id}', '${esc(t.nombre)}')"
-            class="text-xs px-3 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition font-medium">Borrar</button>
+          <textarea rows="2" placeholder="Qué te dijo, cuándo volver a llamar…" onchange="guardarSeguimiento('${esc(t.id)}', { notas: this.value })"
+            class="w-48 text-xs px-2 py-1.5 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-blue-500">${esc(t.notas_admin || '')}</textarea>
         </td>
-      </tr>`).join("");
+        <td class="px-4 py-3 whitespace-nowrap">
+          ${botonWhatsApp(t.telefono, t.nombre, eq ? eq.diasRestantes : null)}
+          <button onclick="borrarTrial('${t.id}', '${esc(t.nombre)}')" title="Borrar sus datos (si lo pide, o si era una prueba tuya)"
+            class="ml-1 text-xs px-2.5 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 font-medium">Borrar</button>
+        </td>
+      </tr>`;
+    }).join("");
 
     pintarInstalaciones(d.instalaciones || [], s);
   } catch (e) {
@@ -1140,6 +1236,12 @@ function pintarInstalaciones(lista, stats) {
 // Cambiar los días que le quedan a un equipo. Sirve para dar margen a quien está a punto de
 // decidirse, y para probar que el trial del servidor funciona: con un trial recién empezado,
 // borrar el fichero local y reabrir dice «60 días» las dos veces y no se distingue nada.
+async function guardarSeguimiento(id, cambio) {
+  const r = await api('PUT', `/admin/api/trials/${id}/seguimiento`, cambio);
+  if (!r.ok) { alert('No se pudo guardar: ' + (r.error || '')); return; }
+  if (cambio.seguimiento) loadTrials();
+}
+
 async function ajustarTrial(id, huella, actuales) {
   const v = prompt(`¿Cuántos días debe tener el equipo ${huella}…?\n\n` +
                    `Ahora le quedan ${actuales}. Pon 0 para darlo por terminado.`, String(actuales));
@@ -1228,7 +1330,7 @@ async function loadSolicitudesAlta(estado) {
 async function aprobarSolicitud(id, nombre) {
   if (!confirm(`¿Marcar como aprobada la solicitud de "${nombre}"?`)) return;
   const res = await api('POST', `/admin/api/solicitudes-alta/${id}/aprobar`, {});
-  if (res.ok) loadSolicitudesAlta();
+  if (res.ok) { loadSolicitudesAlta(); loadResumen(); }
   else alert('Error: ' + res.error);
 }
 
@@ -1245,7 +1347,7 @@ async function confirmarRechazo() {
   const notas = document.getElementById('rechazar-notas').value.trim();
   const email = document.getElementById('rechazar-email').checked;
   const res   = await api('POST', `/admin/api/solicitudes-alta/${id}/rechazar`, { notas_admin: notas || null, enviar_email: email });
-  if (res.ok) { hideModal('modal-rechazar-alta'); loadSolicitudesAlta(); }
+  if (res.ok) { hideModal('modal-rechazar-alta'); loadSolicitudesAlta(); loadResumen(); }
   else alert('Error: ' + res.error);
 }
 

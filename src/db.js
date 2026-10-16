@@ -376,6 +376,10 @@ function initDB() {
   // clínicas».
   try { db.exec('ALTER TABLE trials ADD COLUMN email_verificado_en TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE trials ADD COLUMN clinicaId TEXT'); } catch (_) {}
+  // Seguimiento comercial de quien prueba (16-10-2026): sin contactar / contactado / interesado /
+  // no le interesa, cuándo se tocó por última vez. Las notas van en `notas_admin`, que ya existía.
+  try { db.exec('ALTER TABLE trials ADD COLUMN seguimiento TEXT'); } catch (_) {}
+  try { db.exec('ALTER TABLE trials ADD COLUMN seguimiento_en TEXT'); } catch (_) {}
 
   // De dónde salió cada clínica. La decisión ③ pedía que el alta automática fuera «visible en
   // el panel como nueva, para llevar control y poder borrar clientes falsos»: sin esta columna
@@ -466,6 +470,24 @@ function initDB() {
       ruta      TEXT,
       ip        TEXT,
       aceptado  INTEGER NOT NULL
+    );
+
+    -- Doble autenticacion del panel (16-10-2026, lib/admin-2fa.js). Una sola fila: el secreto de
+    -- Google Authenticator, el pendiente mientras se escanea el QR, y el ultimo codigo usado para
+    -- que el mismo no valga dos veces.
+    CREATE TABLE IF NOT EXISTS admin_2fa (
+      id               INTEGER PRIMARY KEY CHECK (id = 1),
+      secreto          TEXT,
+      pendiente        TEXT,
+      activado_en      TEXT,
+      ultimo_contador  INTEGER NOT NULL DEFAULT 0
+    );
+    -- Sesiones de 12 h tras contraseña + codigo. Solo la huella SHA-256 del token, nunca el token.
+    CREATE TABLE IF NOT EXISTS admin_sesiones (
+      huella  TEXT PRIMARY KEY,
+      creada  TEXT NOT NULL,
+      expira  TEXT NOT NULL,
+      ip      TEXT
     );
 
     CREATE TABLE IF NOT EXISTS webhooks_stripe_log (

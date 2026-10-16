@@ -119,6 +119,15 @@ app.listen(PORT, () => {
   console.log(`[podosystem-relay] ADMIN_TOKEN cargado: ${process.env.ADMIN_TOKEN ? 'SI' : 'NO — el panel de administración queda CERRADO'}`);
   // Si está, no CUÁL (28-09-2026): antes se imprimía el valor entero en los logs de Railway.
   console.log(`[podosystem-relay] REGISTRO_SECRET cargado: ${process.env.REGISTRO_SECRET ? 'SI' : 'NO'}`);
+  // Doble autenticación del panel: la salida si se pierde el móvil (ver lib/admin-2fa.js).
+  try {
+    const dosPasos = require('./lib/admin-2fa');
+    if (['si', 'sí', '1', 'true'].includes(String(process.env.ADMIN_2FA_REINICIAR || '').trim().toLowerCase())) {
+      dosPasos.reiniciar(db);
+      console.warn('[admin] ⚠️ ADMIN_2FA_REINICIAR: doble autenticación BORRADA; el panel pedirá un QR nuevo. QUITA la variable.');
+    }
+    console.log(`[podosystem-relay] Doble autenticación del panel: ${dosPasos.activado(db) ? 'ACTIVADA' : 'sin activar'}`);
+  } catch (e) { console.error('[admin] doble autenticación:', e.message); }
   // Pieza 6.0 — cron recordatorios cloud (push notifications)
   try {
     const { iniciarCronRecordatorios } = require('./lib/cron-recordatorios');

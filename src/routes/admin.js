@@ -22,7 +22,8 @@ const path    = require('path');
 const fs      = require('fs');
 const { genId, genApiKey, genActivationCode } = require('../db');
 const { firmar } = require('../firma');
-const { deployClientSite, redeployClientSite } = require('../netlify-deploy');
+const { deployClientSite } = require('../netlify-deploy');
+const dosPasos = require('../lib/admin-2fa');
 
 /* ⚠️ Sin valor por defecto (30-09-2026). Era `|| 'cambiar-este-token-en-railway'`: si la variable
  * faltara en Railway, el panel —licencias, clínicas, datos de pacientes en las reservas— quedaba
@@ -60,23 +61,100 @@ function registrarAccesoAdmin(req, aceptado) {
   } catch (_) { /* registrar no puede tumbar el panel */ }
 }
 
+// Comparación en tiempo constante: con `!==` el tiempo de respuesta delata cuántos caracteres
+// iniciales acierta quien prueba.
+function igual(token, secreto) {
+  if (!token || !secreto) return false;
+  const a = crypto.createHash('sha256').update(String(token)).digest();
+  const b = crypto.createHash('sha256').update(String(secreto)).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+// La llave de SOLO LECTURA (16-10-2026): para diagnosticar desde scripts sin el móvil delante.
+// Corta no vale: una llave de 10 caracteres que abre los datos de todas las clínicas no es una llave.
+const TOKEN_LECTURA = (process.env.ADMIN_TOKEN_LECTURA || '').trim();
+const TOKEN_LECTURA_VALIDO = TOKEN_LECTURA.length >= 24 && TOKEN_LECTURA !== ADMIN_TOKEN;
+
+/* Quién llama (ver lib/admin-2fa.js):
+ *   · sesión (contraseña + código de Google Authenticator) → todo
+ *   · ADMIN_TOKEN_LECTURA → solo GET
+ *   · ADMIN_TOKEN a secas → solo mientras la doble autenticación NO esté activada */
 function authAdmin(req, res, next) {
   if (!ADMIN_TOKEN_VALIDO) {
     return res.status(503).json({ ok: false, error: 'Panel de administración desactivado: falta ADMIN_TOKEN en el servidor' });
   }
   const header = req.headers['authorization'] || '';
   const token  = header.replace(/^Bearer\s+/i, '').trim();
-  // Comparación en tiempo constante: con `!==` el tiempo de respuesta delata cuántos caracteres
-  // iniciales acierta quien prueba.
-  const a = crypto.createHash('sha256').update(token).digest();
-  const b = crypto.createHash('sha256').update(ADMIN_TOKEN).digest();
-  const ok = token.length > 0 && crypto.timingSafeEqual(a, b);
-  registrarAccesoAdmin(req, ok);
-  if (!ok) {
-    return res.status(401).json({ ok: false, error: 'No autorizado' });
+
+  if (dosPasos.sesionValida(req.db, token)) { registrarAccesoAdmin(req, true); req.adminModo = 'sesion'; return next(); }
+
+  if (TOKEN_LECTURA_VALIDO && igual(token, TOKEN_LECTURA)) {
+    const soloMira = req.method === 'GET' || req.method === 'HEAD';
+    registrarAccesoAdmin(req, soloMira);
+    if (!soloMira) return res.status(403).json({ ok: false, error: 'La llave de lectura no puede cambiar nada' });
+    req.adminModo = 'lectura';
+    return next();
   }
-  next();
+
+  if (igual(token, ADMIN_TOKEN)) {
+    if (dosPasos.activado(req.db)) {
+      registrarAccesoAdmin(req, false);
+      return res.status(401).json({ ok: false, error: 'Falta el código de Google Authenticator', necesita2fa: true });
+    }
+    registrarAccesoAdmin(req, true);
+    req.adminModo = 'maestra';
+    return next();
+  }
+
+  registrarAccesoAdmin(req, false);
+  return res.status(401).json({ ok: false, error: 'No autorizado' });
 }
+
+// ── Entrar: contraseña + código ─────────────────────────────────────────────
+// Seis cifras son un millón de combinaciones y el código cambia cada 30 s; con 10 intentos cada
+// 15 minutos por IP, adivinarlo no es un plan. La contraseña también está detrás de este freno.
+const limiteLogin = require('express-rate-limit')({
+  windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false,
+  message: { ok: false, error: 'Demasiados intentos. Espera 15 minutos.' },
+});
+
+router.post('/api/login', limiteLogin, (req, res) => {
+  if (!ADMIN_TOKEN_VALIDO) return res.status(503).json({ ok: false, error: 'Panel desactivado: falta ADMIN_TOKEN' });
+  const { password, codigo } = req.body || {};
+  const passOk = igual(String(password || '').trim(), ADMIN_TOKEN);
+  if (!passOk) { registrarAccesoAdmin(req, false); return res.status(401).json({ ok: false, error: 'Contraseña o código incorrectos' }); }
+
+  // Primera vez: aún no hay Google Authenticator enlazado → se enseña el QR.
+  if (!dosPasos.activado(req.db)) {
+    // Con código pero sin QR enseñado todavía (escribió algo en la casilla antes de tiempo): se le
+    // enseña el QR en vez de decirle que el código está mal, que lo dejaría sin salida.
+    if (codigo && dosPasos.hayPendiente(req.db)) {
+      if (!dosPasos.confirmarAlta(req.db, codigo)) {
+        registrarAccesoAdmin(req, false);
+        return res.status(401).json({ ok: false, error: 'Ese código no cuadra con el QR. Mira que el móvil tenga la hora en automático.', alta: true });
+      }
+      registrarAccesoAdmin(req, true);
+      return res.json({ ok: true, ...dosPasos.abrirSesion(req.db, req.ip), recienActivada: true });
+    }
+    const { secreto, otpauth } = dosPasos.iniciarAlta(req.db);
+    return require('qrcode').toDataURL(otpauth, { margin: 1, width: 240 })
+      .then(qr => res.json({ ok: false, alta: true, qr, secreto }))
+      .catch(e => res.status(500).json({ ok: false, error: e.message }));
+  }
+
+  if (!dosPasos.verificar(req.db, codigo)) {
+    registrarAccesoAdmin(req, false);
+    return res.status(401).json({ ok: false, error: 'Contraseña o código incorrectos' });
+  }
+  registrarAccesoAdmin(req, true);
+  res.json({ ok: true, ...dosPasos.abrirSesion(req.db, req.ip) });
+});
+
+router.post('/api/logout', (req, res) => {
+  const token = (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '').trim();
+  try { dosPasos.cerrarSesion(req.db, token); } catch (_) {}
+  res.json({ ok: true });
+});
 
 function genLicenseKey() {
   // Formato XXXXX-XXXXX-XXXXX-XXXXX (20 chars hex + guiones)
@@ -340,6 +418,78 @@ router.get('/api/diagnostico', authAdmin, (req, res) => {
   });
 });
 
+// ── El resumen del panel (16-10-2026) ────────────────────────────────────────
+//
+// El de antes contaba «en periodo trial» buscando licencias con estado `trial` —que ya no existen:
+// las pruebas viven en `trial_instalaciones` desde la T2— y calculaba los ingresos como licencias
+// activas × 19 €, un precio que no existe. Con cuatro licencias manuales que no pagan, decía 76 €.
+// Este cuenta como cliente SOLO lo que viene de Stripe, a los precios de hoy, y pone delante lo que
+// hay que hacer: las pruebas que se acaban y las licencias con problemas.
+const PRECIO_MES = { basico: 23, clinica: 27, red: 34 };   // € IVA incluido, desde el 07-10-2026
+const DIA = 86400000;
+
+router.get('/api/resumen', authAdmin, async (req, res) => {
+  const ahora = Date.now();
+  const licencias = req.db.prepare('SELECT * FROM licencias').all();
+  const vivas = licencias.filter(l => !LICENCIA_NO_VALIDA.has(String(l.estado || '').toLowerCase()) && l.estado !== 'blocked');
+  const pagan = vivas.filter(l => l.fuente === 'stripe');
+  const porPlan = {};
+  for (const l of pagan) { const p = l.plan || 'clinica'; porPlan[p] = (porPlan[p] || 0) + 1; }
+  const ingresosMes = pagan.reduce((s, l) => s + (PRECIO_MES[l.plan || 'clinica'] || 0), 0);
+
+  // Las pruebas: el equipo que de verdad tiene el programa, con la persona si se pudo enlazar.
+  const inst = req.db.prepare(`
+    SELECT i.hardwareId, i.inicio, i.fin, i.version, i.vistas, i.ultimaVista,
+           t.id AS trialId, t.nombre, t.telefono, t.email, t.clinica, t.provincia, t.seguimiento
+      FROM trial_instalaciones i LEFT JOIN trials t ON t.id = i.trialId`).all();
+  const conDias = inst.map(i => ({ ...i, diasRestantes: Math.max(0, Math.ceil((new Date(i.fin).getTime() - ahora) / DIA)) }));
+  const enMarcha = conDias.filter(i => i.diasRestantes > 0);
+  const acabanPronto = enMarcha.filter(i => i.diasRestantes <= 7)
+    .sort((a, b) => a.diasRestantes - b.diasRestantes)
+    .map(i => ({ huella: String(i.hardwareId).slice(0, 8), diasRestantes: i.diasRestantes, version: i.version,
+                 persona: i.trialId ? { trialId: i.trialId, nombre: i.nombre, telefono: i.telefono, clinica: i.clinica, seguimiento: i.seguimiento } : null }));
+  const descargas = req.db.prepare('SELECT creadaEn, seguimiento FROM trials').all();
+  const hace30 = new Date(ahora - 30 * DIA).toISOString();
+  const sinContactar = descargas.filter(t => !t.seguimiento || t.seguimiento === 'sin_contactar').length;
+
+  // Avisos: lo que pide una acción, y nada más.
+  const avisos = [];
+  let ultimaVersion = null;
+  try { const { version } = await require('../lib/descarga').ultimaDescarga(); if (version) ultimaVersion = String(version).replace(/^v/, ''); } catch (_) {}
+  const { saludLicencia } = require('../lib/salud_licencias');
+  for (const l of licencias) {
+    const s = saludLicencia(l, { ahora, ultimaVersion });
+    if (s && s.nivel !== 'ok') avisos.push({ nivel: s.nivel, texto: `${l.clienteNombre}: ${s.mensaje}`, ir: 'licencias' });
+  }
+  const pendientes = req.db.prepare("SELECT COUNT(*) AS n FROM solicitudes_alta WHERE estado = 'pendiente'").get().n;
+  if (pendientes) avisos.push({ nivel: 'alerta', texto: `${pendientes} solicitud(es) de alta de Citas Web sin contestar (botón «Solicitar alta» del programa)`, ir: 'solicitudes' });
+  if (acabanPronto.length) avisos.push({ nivel: 'aviso', texto: `${acabanPronto.length} prueba(s) se acaban esta semana: es el momento de llamar`, ir: 'trials' });
+  if (sinContactar) avisos.push({ nivel: 'aviso', texto: `${sinContactar} persona(s) se han descargado la prueba y aún no las has contactado`, ir: 'trials' });
+  try { if (!require('../firma').puedeFirmar()) avisos.push({ nivel: 'alerta', texto: 'El relay no puede firmar las licencias (falta FIRMA_PRIV_KEY)', ir: null }); } catch (_) {}
+  if (!process.env.RESEND_API_KEY) avisos.push({ nivel: 'alerta', texto: 'Sin RESEND_API_KEY: no salen correos de recuperación ni de bienvenida', ir: null });
+  if (!dosPasos.activado(req.db)) avisos.push({ nivel: 'alerta', texto: 'La doble autenticación del panel NO está activada', ir: null });
+  const rechazados7 = req.db.prepare('SELECT COUNT(*) AS n FROM admin_accesos WHERE aceptado = 0 AND fecha > ?')
+    .get(new Date(ahora - 7 * DIA).toISOString()).n;
+  if (rechazados7 >= 20) avisos.push({ nivel: 'alerta', texto: `${rechazados7} intentos de entrar al panel rechazados en 7 días`, ir: null });
+
+  // La flota: qué versión corre cada equipo, clientes y pruebas juntos.
+  const versiones = {};
+  for (const v of [...licencias.map(l => l.version_instalada), ...enMarcha.map(i => i.version)].filter(Boolean)) {
+    versiones[v] = (versiones[v] || 0) + 1;
+  }
+
+  res.json({
+    ok: true,
+    clientes: { pagan: pagan.length, porPlan, ingresosMes, cortesia: vivas.length - pagan.length },
+    pruebas: { enMarcha: enMarcha.length, acabanPronto, descargasTotal: descargas.length,
+               descargas30: descargas.filter(t => (t.creadaEn || '') > hace30).length, sinContactar },
+    clinicasWeb: req.db.prepare('SELECT COUNT(*) AS n FROM clinicas WHERE activa = 1').get().n,
+    flota: { ultimaVersion, versiones },
+    avisos,
+    seguridad: { dosPasos: dosPasos.activado(req.db), rechazados7, modo: req.adminModo },
+  });
+});
+
 router.get('/api/stats', authAdmin, (req, res) => {
   const licencias = req.db.prepare('SELECT * FROM licencias').all();
   const clinicas  = req.db.prepare('SELECT * FROM clinicas').all();
@@ -357,7 +507,9 @@ router.get('/api/stats', authAdmin, (req, res) => {
       trial,
       expiradas,
       totalClinicas: clinicas.length,
-      ingresosMes: activas * 19,
+      // Antes «activas * 19»: un precio que no existe, sobre licencias que no pagan. Ver /api/resumen.
+      ingresosMes: licencias.filter(l => l.estado === 'active' && l.fuente === 'stripe')
+        .reduce((t, l) => t + (PRECIO_MES[l.plan || 'clinica'] || 0), 0),
       solicitudesPendientes,
     }
   });
@@ -599,10 +751,20 @@ router.get('/api/trials', authAdmin, (req, res) => {
       .all().map(r => r.e)
   );
 
+  // Lo que hizo con la descarga: si llegó a abrir el programa y cuántos días le quedan. Es lo que
+  // decide a quién llamar y qué decirle (16-10-2026).
+  const equipos = {};
+  for (const i of req.db.prepare('SELECT trialId, fin, vistas, ultimaVista, version FROM trial_instalaciones WHERE trialId IS NOT NULL').all()) {
+    const r = Math.max(0, Math.ceil((new Date(i.fin).getTime() - Date.now()) / 86400000));
+    const prev = equipos[i.trialId];
+    if (!prev || r > prev.diasRestantes) equipos[i.trialId] = { diasRestantes: r, vistas: i.vistas, ultimaVista: i.ultimaVista, version: i.version };
+  }
+
   const conEstado = trials.map(t => {
     const convertido = correosConLicencia.has(String(t.email || '').toLowerCase().trim());
     const dias = Math.floor((Date.now() - new Date(t.creadaEn).getTime()) / 86400000);
-    return { ...t, convertido, diasDesdeDescarga: dias };
+    return { ...t, convertido, diasDesdeDescarga: dias, equipo: equipos[t.id] || null,
+             seguimiento: t.seguimiento || 'sin_contactar' };
   });
 
   const convertidos = conEstado.filter(t => t.convertido).length;
@@ -713,6 +875,22 @@ router.delete('/api/trial-instalaciones/:huella', authAdmin, (req, res) => {
   const r = req.db.prepare('DELETE FROM trial_instalaciones WHERE hardwareId = ?').run(huella);
   // Borrada la fila, ese equipo vuelve a ser desconocido y estrenará 60 días al preguntar.
   res.json({ ok: true, borrados: r.changes });
+});
+
+// Seguimiento comercial: en qué punto está cada persona que ha probado, y tus notas.
+const SEGUIMIENTO = new Set(['sin_contactar', 'contactado', 'interesado', 'no_interesa']);
+router.put('/api/trials/:id/seguimiento', authAdmin, (req, res) => {
+  const { seguimiento, notas } = req.body || {};
+  if (seguimiento !== undefined && !SEGUIMIENTO.has(seguimiento)) {
+    return res.status(400).json({ ok: false, error: 'Estado no válido' });
+  }
+  const t = req.db.prepare('SELECT id, seguimiento, notas_admin FROM trials WHERE id = ?').get(req.params.id);
+  if (!t) return res.status(404).json({ ok: false, error: 'No existe esa descarga' });
+  req.db.prepare('UPDATE trials SET seguimiento = ?, notas_admin = ?, seguimiento_en = ? WHERE id = ?')
+    .run(seguimiento !== undefined ? seguimiento : (t.seguimiento || 'sin_contactar'),
+         notas !== undefined ? String(notas).slice(0, 2000) : t.notas_admin,
+         new Date().toISOString(), t.id);
+  res.json({ ok: true });
 });
 
 router.delete('/api/trials/:id', authAdmin, (req, res) => {
@@ -841,42 +1019,12 @@ router.post('/api/nuevo-cliente', authAdmin, async (req, res) => {
   res.status(201).json({ ok: true, licenseKey, clinicaId, apiKey, activationCode, webUrl, netlifyError, emailDraft });
 });
 
-// ── Redeploy de site Netlify existente ───────────────────────────────────────
-
-router.post('/api/clinicas/:id/redeploy', authAdmin, async (req, res) => {
-  const { id } = req.params;
-  const clinica = req.db.prepare('SELECT id, nombre, netlifyId, webUrl FROM clinicas WHERE id = ?').get(id);
-  if (!clinica) return res.status(404).json({ ok: false, error: 'Clínica no encontrada' });
-  if (!clinica.netlifyId) {
-    return res.status(400).json({
-      ok: false,
-      error: 'Esta clínica no tiene sitio Netlify asociado. Créalo primero con el flujo de aprobación.',
-    });
-  }
-  if (!process.env.NETLIFY_TOKEN) {
-    return res.status(503).json({ ok: false, error: 'NETLIFY_TOKEN no configurado en Railway' });
-  }
-
-  // Recuperar ciudad/teléfono de la solicitud de alta original si existe
-  const alta = req.db.prepare(
-    'SELECT ciudad, telefono FROM solicitudes_alta WHERE clinicaId = ? ORDER BY creadaEn DESC LIMIT 1'
-  ).get(id);
-
-  try {
-    await redeployClientSite({
-      clinicaId:  id,
-      nombre:     clinica.nombre,
-      ciudad:     alta?.ciudad   || '',
-      telefono:   alta?.telefono || '',
-      netlifyId:  clinica.netlifyId,
-    });
-    console.log(`[admin:redeploy] OK → ${clinica.webUrl}`);
-    res.json({ ok: true, webUrl: clinica.webUrl });
-  } catch (e) {
-    console.error('[admin:redeploy]', e.message);
-    res.status(500).json({ ok: false, error: e.message });
-  }
-});
+// ── «↻ Redeploy web» RETIRADO (16-10-2026) ─────────────────────────────────────
+// Volvía a subir a Netlify el `cita.html` generado con la plantilla. Desde el 04-10 las webs de las
+// clínicas de pago piden la página de citas AL RELAY (`_redirects` → /cita/<clinicaId>), así que
+// redesplegar no hacía falta para nada y además PISABA ese proxy con una copia congelada: la web
+// dejaba de recibir los cambios de la plantilla sin que nadie se enterara. Con la clínica de
+// Francisco (sin netlifyId) daba error; con Merino o Alborán, rompía en silencio.
 
 // ── Deploy inicial manual desde admin panel ──────────────────────────────────
 // Crea el sitio Netlify por primera vez para una clínica que aún no tiene web.
