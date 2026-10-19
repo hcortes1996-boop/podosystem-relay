@@ -14,6 +14,27 @@
     .tag-expired  { background:#fee2e2; color:#991b1b; }
     .tag-blocked  { background:#e5e7eb; color:#374151; }
     pre { white-space: pre-wrap; word-break: break-word; }
+
+    /* ── En el móvil (19-10-2026) ─────────────────────────────────────────────
+       Las tablas tenían 7-10 columnas y el contenedor las cortaba. En pantalla estrecha cada fila
+       pasa a ser una TARJETA: una línea por campo, con el nombre de la columna delante. Las
+       etiquetas las pone `etiquetarTablas()` copiando el <th> de cada columna, así que no hay que
+       tocar el código que pinta las filas. */
+    @media (max-width: 767px) {
+      table.resp thead { display: none; }
+      table.resp, table.resp tbody, table.resp tr, table.resp td { display: block; width: 100%; }
+      table.resp tr { padding: .75rem .25rem; border-bottom: 1px solid #f3f4f6; }
+      table.resp td { padding: .2rem .75rem !important; max-width: none !important; border: 0; }
+      table.resp td[data-label]:not([data-label=""])::before {
+        content: attr(data-label); display: block; font-size: .65rem; font-weight: 600;
+        text-transform: uppercase; letter-spacing: .03em; color: #9ca3af; margin-top: .25rem;
+      }
+      table.resp td[colspan] { text-align: center; }
+      table.resp td[colspan]::before { display: none !important; }
+      table.resp select, table.resp textarea, table.resp input { max-width: 100%; }
+      header nav { scrollbar-width: none; }
+      header nav::-webkit-scrollbar { display: none; }
+    }
   </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -51,25 +72,25 @@
 <!-- MAIN APP -->
 <div id="app" class="hidden">
   <!-- Header -->
-  <header class="bg-[#1E3A5F] text-white px-6 py-3 flex items-center justify-between shadow">
+  <header class="bg-[#1E3A5F] text-white px-3 md:px-6 py-3 flex flex-wrap items-center justify-between gap-2 shadow">
     <div class="flex items-center gap-3">
       <span class="text-xl">🛡️</span>
       <span class="font-bold text-lg">PodoSystem Admin</span>
     </div>
-    <div class="flex items-center gap-4">
-      <nav class="flex gap-1">
+    <div class="flex items-center gap-2 md:gap-4 order-3 md:order-none w-full md:w-auto min-w-0">
+      <nav class="flex gap-1 overflow-x-auto whitespace-nowrap min-w-0 -mx-1 px-1">
         <button onclick="showTab('dashboard')" data-tab="dashboard" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Resumen</button>
         <button onclick="showTab('licencias')" data-tab="licencias" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Licencias</button>
         <button onclick="showTab('clinicas')" data-tab="clinicas" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">Clínicas relay</button>
         <button onclick="showTab('trials')" data-tab="trials" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition flex items-center gap-1.5">Pruebas <span id="badge-pruebas" class="hidden bg-amber-400 text-[#1E3A5F] text-xs rounded-full px-1.5 py-0.5 font-bold leading-none"></span></button>
         <button onclick="showTab('nuevo')" data-tab="nuevo" class="tab-btn px-4 py-1.5 rounded-lg text-sm font-medium text-white/70 hover:text-white hover:bg-white/10 transition">+ Nuevo cliente</button>
       </nav>
-      <button onclick="logout()" class="text-white/50 hover:text-red-300 text-sm transition">Salir</button>
     </div>
+    <button onclick="logout()" class="text-white/50 hover:text-red-300 text-sm transition md:order-last">Salir</button>
   </header>
 
   <!-- Content -->
-  <main class="max-w-7xl mx-auto px-6 py-6">
+  <main class="max-w-7xl mx-auto px-3 md:px-6 py-4 md:py-6">
 
     <!-- RESUMEN (16-10-2026): lo que pasa y lo que hay que hacer. El de antes contaba las pruebas
          donde ya no están y calculaba ingresos a 19 € sobre licencias que no pagan. -->
@@ -94,14 +115,14 @@
 
     <!-- LICENCIAS -->
     <div id="tab-licencias" class="hidden fade">
-      <div class="flex items-center justify-between mb-5">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-5">
         <h2 class="text-xl font-bold text-gray-800">Licencias</h2>
         <button onclick="showModal('modal-nueva-licencia')" class="px-4 py-2 bg-[#2ECC9A] hover:bg-[#28b589] text-[#1E3A5F] rounded-lg text-sm font-semibold transition">
           + Nueva licencia
         </button>
       </div>
       <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <table class="w-full text-sm">
+        <table class="resp w-full text-sm">
           <thead class="bg-gray-50 border-b border-gray-100">
             <tr>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Cliente</th>
@@ -125,11 +146,11 @@
 
     <!-- CLÍNICAS -->
     <div id="tab-clinicas" class="hidden fade">
-      <div class="flex items-center justify-between mb-5">
+      <div class="flex flex-wrap items-center justify-between gap-2 mb-5">
         <h2 class="text-xl font-bold text-gray-800">Clínicas relay</h2>
       </div>
       <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <table class="w-full text-sm">
+        <table class="resp w-full text-sm">
           <thead class="bg-gray-50 border-b border-gray-100">
             <tr>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">ID</th>
@@ -238,7 +259,7 @@
         apunta en qué punto está cada uno y llámale antes de que se le acabe.</p>
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6" id="trials-stats"></div>
       <div class="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <table class="w-full">
+        <table class="resp w-full">
           <thead class="bg-gray-50">
             <tr>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Quién</th>
@@ -264,7 +285,7 @@
            se lo pasa a tres compañeros. Esta tabla es la mitad que faltaba. -->
       <h3 class="text-sm font-semibold text-gray-700 mt-8 mb-3">Equipos con el programa instalado</h3>
       <div class="bg-white rounded-xl border border-gray-100 overflow-hidden">
-        <table class="w-full">
+        <table class="resp w-full">
           <thead class="bg-gray-50">
             <tr>
               <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Equipo</th>
@@ -1355,6 +1376,23 @@ async function confirmarRechazo() {
 function showModal(id) { document.getElementById(id).classList.remove('hidden'); }
 function hideModal(id) { document.getElementById(id).classList.add('hidden'); }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+<script>
+  // Copia el título de cada columna a sus celdas (data-label) para la vista de tarjetas del móvil.
+  // Se vuelve a aplicar cada vez que una tabla se repinta.
+  function etiquetarTablas() {
+    document.querySelectorAll('table.resp').forEach(t => {
+      const titulos = [...t.querySelectorAll('thead th')].map(th => th.textContent.trim());
+      t.querySelectorAll('tbody tr').forEach(tr => {
+        [...tr.children].forEach((td, i) => {
+          if (!td.hasAttribute('data-label')) td.setAttribute('data-label', titulos[i] || '');
+        });
+      });
+    });
+  }
+  document.querySelectorAll('table.resp tbody').forEach(tb =>
+    new MutationObserver(etiquetarTablas).observe(tb, { childList: true, subtree: true }));
+  etiquetarTablas();
 </script>
 </body>
 </html>
