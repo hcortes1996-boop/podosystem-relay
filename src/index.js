@@ -36,7 +36,9 @@ app.use((req, _res, next) => {
 // express.raw() deja req.body como Buffer, necesario para verificar HMAC-SHA256 (LS) y Stripe.constructEvent.
 // Pieza 8.2: webhooks-stripe paralelo a LemonSqueezy (que queda como fallback historico).
 app.use('/api/webhooks', express.raw({ type: 'application/json' }));
-app.use('/api/webhooks', require('./routes/webhooks'));         // /api/webhooks/lemonsqueezy
+// LemonSqueezy NO se monta (24-10-2026): nunca hubo tienda, y sin LEMONSQUEEZY_WEBHOOK_SECRET su
+// handler daba la firma por buena y creaba licencias activas a quien lo llamara. El fichero
+// routes/webhooks.js queda solo como referencia.
 app.use('/api/webhooks', require('./routes/webhooks-stripe'));  // /api/webhooks/stripe
 
 // Límite del cuerpo: 2 MB. El de serie de Express es 100 KB, y el PC manda en cada sincronización
