@@ -166,6 +166,15 @@
       margin-bottom: 5px;
       letter-spacing: .02em;
     }
+    #lista-espera-franjas { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+    .cita-glass-card label.franja-opcion {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-weight: 400; margin: 0; cursor: pointer;
+    }
+    .cita-glass-card label.franja-opcion input,
+    .cita-glass-card #lista-espera {
+      width: auto; padding: 0; margin: 0; flex: none;
+    }
     .required { color: #c9a84c; }
     .optional { color: var(--muted); font-weight: 400; }
 
@@ -1192,10 +1201,13 @@
                 <input type="checkbox" id="lista-espera" style="margin-top:4px;width:18px;height:18px">
                 <span>Si queda una hora libre antes, avísenme por WhatsApp</span>
               </label>
+              <!-- Las reglas de la tarjeta ponen los label en bloque y los input al 100 % de
+                   ancho: sin anularlas, cada opción caía en su línea y el botón lejos de su
+                   texto (prueba en Merino, 25-10-2026). -->
               <div id="lista-espera-franjas" style="display:none;margin:8px 0 0 28px;font-size:.92rem">
-                <label style="margin-right:14px;font-weight:400"><input type="radio" name="lista-franja" value="manana"> Mañana</label>
-                <label style="margin-right:14px;font-weight:400"><input type="radio" name="lista-franja" value="tarde"> Tarde</label>
-                <label style="font-weight:400"><input type="radio" name="lista-franja" value="dia" checked> Me da igual</label>
+                <label class="franja-opcion"><input type="radio" name="lista-franja" value="manana"> Mañana</label>
+                <label class="franja-opcion"><input type="radio" name="lista-franja" value="tarde"> Tarde</label>
+                <label class="franja-opcion"><input type="radio" name="lista-franja" value="dia" checked> Me da igual</label>
               </div>
             </div>
             <div class="form-privacy">
