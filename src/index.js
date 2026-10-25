@@ -73,6 +73,7 @@ app.use('/api', require('./routes/registro'));
 app.use('/api', require('./routes/clinica'));
 app.use('/api', require('./routes/bloqueos'));
 app.use('/api', require('./routes/agenda'));
+app.use('/api', require('./routes/ofertas'));   // lista de espera, Fase 2: «La quiero»
 app.use('/api', require('./routes/alta'));
 // Entrega del código de recuperación de contraseña. El PC lo genera y lo verifica;
 // aquí solo se entrega el correo, para que la clínica no tenga que configurar un SMTP.

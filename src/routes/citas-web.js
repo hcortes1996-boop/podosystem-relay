@@ -281,6 +281,36 @@ router.get('/cita/:clinicaId', (req, res) => {
   res.type('html').send(html);
 });
 
+/* ── El enlace «La quiero» de la lista de espera (Fase 2, 25-10-2026) ───────────────────────── */
+//
+// Vive en `src/paginas`, NO en `web-template`: esa carpeta viaja a los Netlify de las clínicas y
+// esta página solo tiene sentido servida aquí, junto a `/api/oferta/:token`, que es lo que llama.
+// Decisión de Francisco: el enlace va en la dirección del relay, no en la web de cada clínica.
+let PLANTILLA_OFERTA = null;
+try { PLANTILLA_OFERTA = fs.readFileSync(path.join(__dirname, '..', 'paginas', 'oferta.html'), 'utf-8'); }
+catch (e) { console.error('[citas-web] NO se pudo cargar paginas/oferta.html:', e.message); }
+
+router.get('/oferta/:token', (req, res) => {
+  const { hashToken } = require('../lib/anulacion');
+  const token = String(req.params.token || '');
+  const oferta = token.length >= 16
+    ? req.db.prepare('SELECT clinicaId FROM ofertas_hueco WHERE tokenHash = ?').get(hashToken(token))
+    : null;
+  const clinica = oferta ? req.db.prepare('SELECT * FROM clinicas WHERE id = ? AND activa = 1').get(oferta.clinicaId) : null;
+  // Mismo mensaje para un token inventado que para uno de una clínica dada de baja.
+  if (!clinica || !PLANTILLA_OFERTA) {
+    return paginaNoEncontrada(res, 'Este enlace ya no está disponible',
+      'Si esperaba una cita, llame a su clínica y se lo resolvemos.');
+  }
+  const vars = construirVars({
+    clinicaId: clinica.id, nombre: clinica.nombre, ciudad: clinica.ciudad || '',
+    direccion: clinica.direccion || '', telefono: clinica.telefono || '', whatsapp: clinica.whatsapp || '',
+    horario: horarioDe(req.db, clinica.id),
+  });
+  res.setHeader('Cache-Control', 'no-store');
+  res.type('html').send(applyPlaceholders(PLANTILLA_OFERTA, vars));
+});
+
 module.exports = router;
 // La elección de URL se exporta aparte porque es lo único de este fichero que puede afirmarse
 // sin descodificar un QR — y es justo donde estaba el fallo. Ver `test_citas_relay.js`.

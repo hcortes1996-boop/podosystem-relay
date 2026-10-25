@@ -56,6 +56,14 @@ function guardarDatosClinica(db, clinicaId, datos) {
   if (sets.length) db.prepare(`UPDATE clinicas SET ${sets.join(', ')} WHERE id = ?`).run(...vals, clinicaId);
 }
 
+/** Lista de espera, Fase 2 — huecos aceptados por el enlace que el PC todavía no ha movido. */
+function ofertasAceptadasSinAplicar(db, clinicaId) {
+  try {
+    return db.prepare(`SELECT fecha, hora, duracion, podologoId FROM ofertas_hueco
+                        WHERE clinicaId = ? AND estado = 'aceptada' AND aplicadaEn IS NULL`).all(clinicaId);
+  } catch (_) { return []; }
+}
+
 router.put('/sync-agenda', auth, (req, res) => {
   const { config, citasOcupadas, podologos, citasOcupadasPorPodologo, ventana, vetos, datosClinica } = req.body;
   if (!config) return res.status(400).json({ ok: false, error: 'Falta config' });
@@ -135,6 +143,12 @@ router.put('/sync-agenda', auth, (req, res) => {
     for (const r of pendientesAgregadas) {
       if (r.fecha && r.hora) insOcupadas.run(req.clinicaId, r.fecha, r.hora, r.duracion || 30);
     }
+    // Lista de espera, Fase 2: un hueco que un paciente aceptó por el enlace y el PC aún no ha
+    // aplicado sigue ocupado, aunque el PC lo mande libre porque todavía no se ha enterado.
+    // Mismo patrón que las reservas pendiente_pc de arriba.
+    for (const o of ofertasAceptadasSinAplicar(req.db, req.clinicaId)) {
+      insOcupadas.run(req.clinicaId, o.fecha, o.hora, o.duracion || 30);
+    }
   });
   if (!conservarOcupacion) insertAllOcupadas(citasOcupadas || []);
 
@@ -209,6 +223,9 @@ router.put('/sync-agenda', auth, (req, res) => {
       ).all(req.clinicaId);
       for (const r of pendientesPodologo) {
         if (r.fecha && r.hora) insPodCita.run(req.clinicaId, r.fecha, r.hora, r.duracion || 30, r.podologoId);
+      }
+      for (const o of ofertasAceptadasSinAplicar(req.db, req.clinicaId)) {
+        if (o.podologoId) insPodCita.run(req.clinicaId, o.fecha, o.hora, o.duracion || 30, o.podologoId);
       }
     });
     insertAllPodCitas(citasOcupadasPorPodologo);
@@ -888,6 +905,9 @@ const limiteReservar = process.env.NODE_ENV === 'test'
 
 router.post('/reservar-slot', limiteReservar, (req, res) => {
   const { clinicaId, fecha, hora, nombre, telefono, email, motivo, observaciones, podologoId } = req.body;
+  // Lista de espera, Fase 2: la casilla «avísenme si queda una hora antes». Solo se guarda si
+  // el PC de la clínica la sabe usar (bandera `listaEsperaWeb` de su sync); si no, se ignora.
+  const listaEsperaPedida = require('../lib/oferta_hueco').normalizarFranja(req.body.listaEspera);
 
   if (!clinicaId || !fecha || !hora || !nombre?.trim() || !telefono?.trim()) {
     return res.status(400).json({ ok: false, error: 'Faltan campos obligatorios' });
@@ -1039,6 +1059,10 @@ router.post('/reservar-slot', limiteReservar, (req, res) => {
         nombreDeMotivo(cfgDuracion, req.body.motivoId) || motivo || null,
         observaciones?.trim() || null, podologoId || null,
         hashToken(token), token);
+
+      if (listaEsperaPedida && cfgRes.listaEsperaWeb === true) {
+        req.db.prepare('UPDATE reservas SET listaEsperaFranja = ? WHERE id = ?').run(listaEsperaPedida, id);
+      }
 
       return { id, duracion, token };
     })();
@@ -1208,6 +1232,8 @@ router.get('/semana/:clinicaId', (req, res) => {
     // Quién puede atender el servicio pedido. La página lo usa para saltarse el paso
     // de «con quién» cuando solo hay uno, y enseñar su nombre.
     podologosQuePueden: req.query.motivo ? puedenAtender.map(p => p.id) : null,
+    // Lista de espera, Fase 2: la web solo pinta la casilla si el PC de la clínica la sabe usar.
+    listaEsperaWeb: cfg.listaEsperaWeb === true,
     ventanaInicio: fechaInicio.toISOString().slice(0, 10),
     ventanaFin: fechaFin.toISOString().slice(0, 10)
   });
@@ -1298,6 +1324,7 @@ router.get('/semana/:clinicaId/:podologoId', (req, res) => {
     // poder ofrecer el selector y recargar los huecos al cambiar de motivo.
     // Los servicios de ESTE podólogo, que pueden no ser los de la clínica.
     motivos: motivosPublicos({ motivos: suCatalogo.motivos }),
+    listaEsperaWeb: cfg.listaEsperaWeb === true,
     ventanaInicio: fechaInicio.toISOString().slice(0, 10),
     ventanaFin: fechaFin.toISOString().slice(0, 10)
   });

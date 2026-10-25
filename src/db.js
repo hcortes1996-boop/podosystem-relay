@@ -360,6 +360,36 @@ function initDB() {
   try { db.exec('ALTER TABLE reservas ADD COLUMN intentoAnularNota TEXT'); } catch (_) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_reservas_token ON reservas(tokenHash)'); } catch (_) {}
 
+  // Lista de espera, Fase 2 (25-10-2026) — ver src/lib/oferta_hueco.js.
+  // La franja que eligió quien se apuntó a la lista al reservar por la web ('manana'|'tarde'|'dia').
+  try { db.exec('ALTER TABLE reservas ADD COLUMN listaEsperaFranja TEXT'); } catch (_) {}
+  // Las ofertas «La quiero». Los dos índices únicos parciales son la garantía de fondo: aunque
+  // el código fallara, la base no admite dos ofertas abiertas ni dos aceptadas para el mismo hueco.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ofertas_hueco (
+      id              TEXT PRIMARY KEY,
+      clinicaId       TEXT NOT NULL,
+      huecoCitaId     TEXT NOT NULL,
+      fecha           TEXT NOT NULL,
+      hora            TEXT NOT NULL,
+      duracion        INTEGER NOT NULL DEFAULT 30,
+      podologoId      TEXT,
+      candidatoCitaId TEXT NOT NULL,
+      nombrePila      TEXT NOT NULL,
+      citaActualFecha TEXT NOT NULL,
+      citaActualHora  TEXT NOT NULL,
+      tokenHash       TEXT NOT NULL,
+      venceEn         TEXT NOT NULL,
+      estado          TEXT NOT NULL DEFAULT 'abierta',
+      respondidaEn    TEXT,
+      aplicadaEn      TEXT,
+      creadaEn        TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_oferta_abierta  ON ofertas_hueco(clinicaId, huecoCitaId) WHERE estado = 'abierta';
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_oferta_aceptada ON ofertas_hueco(clinicaId, huecoCitaId) WHERE estado = 'aceptada';
+    CREATE INDEX IF NOT EXISTS idx_oferta_token ON ofertas_hueco(tokenHash);
+  `);
+
   // v2.1+ — Datos de contacto de la clínica (necesarios para deploy Netlify diferido)
   try { db.exec('ALTER TABLE clinicas ADD COLUMN telefono TEXT'); } catch (_) {}
   try { db.exec('ALTER TABLE clinicas ADD COLUMN ciudad TEXT'); } catch (_) {}

@@ -1185,6 +1185,19 @@
               <textarea id="observaciones" name="observaciones" rows="2" placeholder="Por ejemplo: prefiero que me llamen por la tarde"></textarea>
               <p style="font-size:.78rem;color:#94a3b8;margin:6px 0 0">No incluya información sobre su salud: se la preguntará su podólogo en la consulta.</p>
             </div>
+            <!-- Lista de espera, Fase 2 (25-10-2026). Oculta hasta que /api/semana diga
+                 listaEsperaWeb: si el PC de la clínica no la sabe atender, no se ofrece. -->
+            <div class="form-group" id="lista-espera-grupo" style="display:none">
+              <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-weight:600">
+                <input type="checkbox" id="lista-espera" style="margin-top:4px;width:18px;height:18px">
+                <span>Si queda una hora libre antes, avísenme por WhatsApp</span>
+              </label>
+              <div id="lista-espera-franjas" style="display:none;margin:8px 0 0 28px;font-size:.92rem">
+                <label style="margin-right:14px;font-weight:400"><input type="radio" name="lista-franja" value="manana"> Mañana</label>
+                <label style="margin-right:14px;font-weight:400"><input type="radio" name="lista-franja" value="tarde"> Tarde</label>
+                <label style="font-weight:400"><input type="radio" name="lista-franja" value="dia" checked> Me da igual</label>
+              </div>
+            </div>
             <div class="form-privacy">
               <input type="checkbox" id="privacidad" name="privacidad">
               <label for="privacidad">
@@ -1478,6 +1491,26 @@
     let selectedFecha = null;
     let selectedHora  = null;
     let semanaData    = null;
+
+    // Lista de espera, Fase 2: la casilla solo aparece si el relay dice que el PC la atiende.
+    function listaEsperaWeb(activa) {
+      const g = document.getElementById('lista-espera-grupo');
+      if (!g) return;
+      g.style.display = activa ? '' : 'none';
+      if (!activa) document.getElementById('lista-espera').checked = false;
+    }
+    function franjaListaEspera() {
+      const g = document.getElementById('lista-espera-grupo');
+      const c = document.getElementById('lista-espera');
+      if (!g || !c || g.style.display === 'none' || !c.checked) return null;
+      const r = document.querySelector('input[name="lista-franja"]:checked');
+      return r ? r.value : 'dia';
+    }
+    document.addEventListener('change', (ev) => {
+      if (ev.target && ev.target.id === 'lista-espera') {
+        document.getElementById('lista-espera-franjas').style.display = ev.target.checked ? '' : 'none';
+      }
+    });
 
     // Pieza 3.3 — multi-podólogo
     let podologos = [];               // lista cargada al iniciar
@@ -1805,6 +1838,7 @@
         duracionSlot  = data.duracionSlot || 30;
 
         pintarMotivos(data.motivos);
+        listaEsperaWeb(data.listaEsperaWeb === true);
 
         renderWeekGrid(data);
         updateNavButtons();
@@ -2084,7 +2118,8 @@
             // un identificador desconocido cae a la duración por defecto.
             motivoId:      motivoSeleccionado || null,
             observaciones: document.getElementById('observaciones').value.trim() || null,
-            podologoId:    podologoSeleccionado  // Pieza 3.3 — null si "Cualquiera"
+            podologoId:    podologoSeleccionado,  // Pieza 3.3 — null si "Cualquiera"
+            listaEspera:   franjaListaEspera()
           })
         });
         const data = await res.json();
@@ -2108,6 +2143,10 @@
         document.getElementById('success-detail').textContent =
           `${dLabel.charAt(0).toUpperCase() + dLabel.slice(1)} a las ${selectedHora}h`;
         document.getElementById('success-ref').textContent = data.reservaId || '–';
+        if (franjaListaEspera()) {
+          document.getElementById('success-detail').insertAdjacentHTML('afterend',
+            '<p style="margin:6px 0">Le avisaremos por WhatsApp si se libera una hora antes.</p>');
+        }
         showStep('success');
 
       } catch (err) {

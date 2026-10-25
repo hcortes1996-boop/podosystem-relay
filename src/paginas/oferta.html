@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Una hora libre — {{CLINICA_NOMBRE}}</title>
+  <!-- No se indexa: cada dirección lleva el token de un paciente concreto. -->
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" type="image/png" href="{{CLINICA_LOGO_URL}}">
+  <style>
+    /* La página del enlace «La quiero» (lista de espera, Fase 2). La sirve SOLO el relay:
+       no está en web-template para que no viaje a ningún Netlify. Estilo de gestionar.html. */
+    :root {
+      --c1: {{CLINICA_COLOR_1}};
+      --c2: {{CLINICA_COLOR_2}};
+      --acc: {{CLINICA_COLOR_ACCENT}};
+      --tinta: #1e293b; --suave: #64748b; --borde: #e2e8f0;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; color: var(--tinta);
+      background: radial-gradient(ellipse 80% 60% at 20% 20%, var(--acc) 0%, transparent 55%),
+                  linear-gradient(145deg, var(--c1) 0%, var(--c2) 100%);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px 16px;
+    }
+    .tarjeta { background: #fff; border-radius: 20px; width: 100%; max-width: 520px; box-shadow: 0 20px 60px rgba(0,0,0,.25); overflow: hidden; }
+    .cabecera { padding: 28px 28px 20px; border-bottom: 1px solid var(--borde); text-align: center; }
+    .cabecera img { max-height: 56px; margin-bottom: 12px; }
+    .cabecera h1 { font-size: 21px; font-weight: 700; }
+    .cuerpo { padding: 28px; font-size: 16px; line-height: 1.5; }
+    .saludo { font-size: 18px; margin-bottom: 14px; }
+    .hueco { border: 2px solid var(--c1); border-radius: 14px; padding: 16px; text-align: center; margin: 10px 0 14px; }
+    .hueco .etq { color: var(--suave); font-size: 14px; }
+    .hueco .cuando { font-size: 20px; font-weight: 800; margin-top: 4px; text-transform: capitalize; }
+    .actual { color: var(--suave); font-size: 15px; }
+    .plazo { color: var(--suave); font-size: 14px; margin-top: 10px; }
+    .aviso { border-radius: 14px; padding: 16px; margin: 6px 0; font-size: 16px; line-height: 1.5; }
+    .aviso--ok   { background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; }
+    .aviso--info { background: #f8fafc; border: 1px solid var(--borde); color: var(--tinta); }
+    .aviso--malo { background: #fffbeb; border: 1px solid #fde68a; color: #78350f; }
+    .aviso strong { display: block; margin-bottom: 6px; font-size: 18px; }
+    .botones { display: flex; flex-direction: column; gap: 10px; margin-top: 22px; }
+    button { padding: 16px; border: 0; border-radius: 12px; font-family: inherit; font-size: 17px; font-weight: 700; cursor: pointer; }
+    .btn-si { background: #16a34a; color: #fff; }
+    .btn-no { background: #f1f5f9; color: var(--suave); }
+    button:disabled { opacity: .6; cursor: wait; }
+    .pie { padding: 16px 28px 24px; text-align: center; font-size: 13px; color: #94a3b8; }
+    .pie a { color: inherit; }
+    .cargando { padding: 60px 28px; text-align: center; color: var(--suave); }
+    .oculto { display: none; }
+  </style>
+</head>
+<body>
+  <div class="tarjeta">
+    <div class="cabecera">
+      <img src="{{CLINICA_LOGO_URL}}" alt="" onerror="this.style.display='none'">
+      <h1>{{CLINICA_NOMBRE}}</h1>
+    </div>
+    <div id="cargando" class="cargando">Un momento…</div>
+    <div id="cuerpo" class="cuerpo oculto"></div>
+    <div class="pie">¿Alguna duda? Llámenos al <a href="tel:{{CLINICA_TELEFONO_RAW}}">{{CLINICA_TELEFONO}}</a></div>
+  </div>
+<script>
+(function () {
+  'use strict';
+  var token = decodeURIComponent((location.pathname.split('/').filter(Boolean)[1] || ''));
+  var API = '/api/oferta/' + encodeURIComponent(token);
+  var cuerpo = document.getElementById('cuerpo');
+  var DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  var MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return '&#' + c.charCodeAt(0) + ';'; }); }
+  // «martes 28 de octubre a las 10:00». La fecha es de la clínica: se lee como fecha, sin zona.
+  function cuando(f, h) {
+    var p = String(f).split('-');
+    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2], 12));
+    return DIAS[d.getUTCDay()] + ' ' + (+p[2]) + ' de ' + MESES[+p[1] - 1] + ' a las ' + esc(h);
+  }
+  function horaDe(iso) {
+    var d = new Date(iso);
+    return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+  }
+  function mostrar(html) {
+    document.getElementById('cargando').classList.add('oculto');
+    cuerpo.innerHTML = html; cuerpo.classList.remove('oculto');
+  }
+  function noDisponible(o) {
+    var actual = o ? '<br>Su cita del ' + cuando(o.citaActual.fecha, o.citaActual.hora) + ' sigue igual.' : '';
+    mostrar('<div class="aviso aviso--malo"><strong>Lo sentimos, esta hora ya no está disponible.</strong>'
+      + 'El plazo terminó o se la hemos dado a otra persona.' + actual + '</div>');
+  }
+  function confirmado(o) {
+    mostrar('<div class="aviso aviso--ok"><strong>✅ Confirmado</strong>'
+      + 'Su cita es ahora el <b>' + cuando(o.hueco.fecha, o.hueco.hora) + '</b>.<br>'
+      + 'La del ' + cuando(o.citaActual.fecha, o.citaActual.hora) + ' queda anulada.</div>'
+      + '<p class="plazo">Puede cerrar esta página. ¡Hasta pronto!</p>');
+  }
+  function rechazado(o) {
+    mostrar('<div class="aviso aviso--info"><strong>De acuerdo</strong>'
+      + 'Mantenemos su cita del ' + cuando(o.citaActual.fecha, o.citaActual.hora) + '. Gracias por responder.</div>');
+  }
+  function enviar(accion, boton) {
+    var botones = cuerpo.querySelectorAll('button');
+    for (var i = 0; i < botones.length; i++) botones[i].disabled = true;
+    boton.textContent = 'Un momento…';
+    fetch(API + '/' + accion, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (accion === 'aceptar') return j.ok ? confirmado(j.oferta) : noDisponible(j.oferta);
+        return j.oferta && j.oferta.estado === 'rechazada' ? rechazado(j.oferta) : noDisponible(j.oferta);
+      })
+      .catch(function () {
+        mostrar('<div class="aviso aviso--malo"><strong>No hemos podido completarlo</strong>Revise la conexión y vuelva a abrir el enlace, o llámenos.</div>');
+      });
+  }
+  // Abrir el enlace solo LEE. Aceptar es un botón: la vista previa de WhatsApp no pulsa botones.
+  fetch(API).then(function (r) { return r.json(); }).then(function (j) {
+    if (!j.ok) return noDisponible(null);
+    var o = j.oferta;
+    if (o.estado === 'aceptada') return confirmado(o);
+    if (o.estado === 'rechazada') return rechazado(o);
+    if (!o.puedeResponder) return noDisponible(o);
+    mostrar('<p class="saludo">Hola, ' + esc(o.nombre) + '.</p>'
+      + '<p>Se ha quedado libre una hora antes que la suya:</p>'
+      + '<div class="hueco"><div class="etq">Hora libre</div><div class="cuando">' + cuando(o.hueco.fecha, o.hueco.hora) + '</div></div>'
+      + '<p class="actual">Su cita actual: ' + cuando(o.citaActual.fecha, o.citaActual.hora) + '.</p>'
+      + '<p class="plazo">Puede responder hasta las ' + horaDe(o.venceEn) + '.</p>'
+      + '<div class="botones"><button class="btn-si" id="si">La quiero</button>'
+      + '<button class="btn-no" id="no">No, gracias</button></div>');
+    document.getElementById('si').onclick = function () { enviar('aceptar', this); };
+    document.getElementById('no').onclick = function () { enviar('rechazar', this); };
+  }).catch(function () { noDisponible(null); });
+})();
+</script>
+</body>
+</html>

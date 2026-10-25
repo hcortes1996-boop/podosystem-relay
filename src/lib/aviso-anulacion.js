@@ -61,6 +61,24 @@ function construirPayload({ reserva, tipo, motivo }) {
     };
   }
 
+  // Lista de espera, Fase 2: el paciente respondió al enlace «La quiero». `reserva` lleva aquí
+  // el hueco ofrecido (fecha y hora) y `nombre` el nombre de pila.
+  if (tipo === 'oferta_aceptada') {
+    return {
+      title: '✅ Hueco cubierto desde la lista de espera',
+      body: `${quien(reserva)} se queda el hueco del ${cita} (lo ha aceptado por el enlace). `
+          + 'Al abrir PodoSystem se moverá su cita sola. No des esa hora a nadie.',
+      data: { type: 'oferta_aceptada', fecha: reserva?.fecha || null, hora: reserva?.hora || null, urgente: true },
+    };
+  }
+  if (tipo === 'oferta_rechazada') {
+    return {
+      title: '⏳ Lista de espera: no lo quiere',
+      body: `${quien(reserva)} no quiere el hueco del ${cita}. Puedes ofrecérselo al siguiente.`,
+      data: { type: 'oferta_rechazada', fecha: reserva?.fecha || null, hora: reserva?.hora || null, urgente: false },
+    };
+  }
+
   return {
     title: '❌ Cita anulada por el paciente',
     body: `${quien(reserva)} ha anulado su cita del ${cita}${coletilla}. El hueco queda libre.`,
