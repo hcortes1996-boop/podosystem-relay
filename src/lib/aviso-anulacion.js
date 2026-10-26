@@ -17,8 +17,9 @@
  *      no puede devolverle un error. Todo va envuelto y se dispara sin esperar.
  *   2. Solo avisa de lo que hace EL PACIENTE. Lo que cancela la clínica no se notifica:
  *      lo acaba de hacer ella.
- *   3. No incluye teléfono ni email del paciente. Una push viaja por Expo y se ve en la
- *      pantalla bloqueada del móvil.
+ *   3. No incluye teléfono, email ni el MOTIVO que escribe el paciente. Una push viaja por
+ *      Expo (EE. UU.) y se ve en la pantalla bloqueada del móvil, y el motivo puede ser un
+ *      dato de salud («tengo fiebre», «me operan»). Decidido por Francisco el 26-10-2026.
  */
 
 const { enviarPushNotification } = require('./recordatorios');
@@ -41,15 +42,13 @@ function quien(reserva) {
   return n || 'Un paciente';
 }
 
-function construirPayload({ reserva, tipo, motivo }) {
+function construirPayload({ reserva, tipo }) {
   const cita = cuando(reserva?.fecha, reserva?.hora);
-  const razon = String(motivo || '').trim();
-  const coletilla = razon ? ` — «${razon.slice(0, 80)}»` : '';
 
   if (tipo === 'intento') {
     return {
       title: '🔴 Intento de anular fuera de plazo',
-      body: `${quien(reserva)} ha intentado anular su cita del ${cita}${coletilla}. `
+      body: `${quien(reserva)} ha intentado anular su cita del ${cita}. `
           + 'La cita SIGUE en la agenda: llámele para confirmar si viene.',
       data: {
         type: 'intento_anulacion',
@@ -81,7 +80,7 @@ function construirPayload({ reserva, tipo, motivo }) {
 
   return {
     title: '❌ Cita anulada por el paciente',
-    body: `${quien(reserva)} ha anulado su cita del ${cita}${coletilla}. El hueco queda libre.`,
+    body: `${quien(reserva)} ha anulado su cita del ${cita}. El hueco queda libre.`,
     data: {
       type: 'anulacion_web',
       reservaId: reserva?.id || null,

@@ -113,7 +113,7 @@ setTimeout(async () => {
     ok(p.data?.urgente === false, 'NO va marcado urgente — el hueco ya está libre');
     ok(/anulad/i.test(p.title), 'el título dice que ha sido anulada', p.title);
     ok(p.body.includes('Rafael Segovia Ferrera'), 'el aviso dice de quién es la cita');
-    ok(p.body.includes('me sale trabajo'), 'el motivo que escribió el paciente llega a la clínica');
+    ok(!p.body.includes('me sale trabajo'), 'el aviso NO lleva el motivo: puede ser un dato de salud y viaja por Expo');
     ok(p.data?.reservaId === reserva.id, 'lleva el reservaId para que la APK abra la cita');
     ok(enviados[0].tokens.length === 1, 'va al móvil registrado de la clínica');
 
