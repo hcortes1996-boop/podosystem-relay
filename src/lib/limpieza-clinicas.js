@@ -212,6 +212,19 @@ function revisarClinicas(db, { ahora = new Date(), modo = process.env.LIMPIEZA_M
     informe.errores.push({ reservas: e.message });
   }
 
+  // ── 3a. Ofertas de la lista de espera: mismo plazo que las reservas (26-10-2026) ──
+  // Llevan el nombre de pila del paciente y la fecha de su cita. Hacen falta hasta que pasan
+  // las dos citas —la libre y la suya— y una semana más; después no las lee nadie.
+  try {
+    const limite = new Date(t - RESERVA_DIAS_TRAS_CITA * DIA_MS).toISOString().slice(0, 10);
+    const donde = 'fecha < ? AND citaActualFecha < ?';
+    const n = db.prepare(`SELECT COUNT(*) AS n FROM ofertas_hueco WHERE ${donde}`).get(limite, limite).n;
+    informe.ofertasCaducadas = { limite, cuantas: n, borradas: 0 };
+    if (aplicar && n) {
+      informe.ofertasCaducadas.borradas = db.prepare(`DELETE FROM ofertas_hueco WHERE ${donde}`).run(limite, limite).changes;
+    }
+  } catch (_) { /* tabla aún sin crear en una base vieja: nada que purgar */ }
+
   // ── 3b. Lo que pasó por el servidor de camino al PC (07-10-2026) ────────────
   //
   // · `citas_remote_ops`: cambios de citas hechos desde el móvil fuera de la clínica (pueden

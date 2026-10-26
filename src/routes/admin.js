@@ -939,6 +939,7 @@ router.delete('/api/clinicas/:id', authAdmin, (req, res) => {
       req.db.prepare('DELETE FROM agenda_config     WHERE clinicaId = ?').run(id);
       req.db.prepare('DELETE FROM citas_ocupadas    WHERE clinicaId = ?').run(id);
       req.db.prepare('DELETE FROM reservas          WHERE clinicaId = ?').run(id);
+      try { req.db.prepare('DELETE FROM ofertas_hueco WHERE clinicaId = ?').run(id); } catch (_) {}
       req.db.prepare('DELETE FROM solicitudes       WHERE clinicaId = ?').run(id);
       req.db.prepare('DELETE FROM bloqueos          WHERE clinicaId = ?').run(id);
       req.db.prepare('DELETE FROM clinicas          WHERE id = ?').run(id);

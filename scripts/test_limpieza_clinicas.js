@@ -141,6 +141,21 @@ try {
   prueba(hay('R_FUTURA'), 'y la de una cita FUTURA también: el enlace de anulación del paciente la busca aquí');
   prueba(hay('R_RARA'), 'una fecha en otro formato no se borra a ciegas');
 
+  console.log('\n── Ofertas de la lista de espera: las dos citas + 7 días (26-10-2026) ──');
+  const oferta = (id, fecha, citaActualFecha) => db.prepare(`INSERT INTO ofertas_hueco
+      (id, clinicaId, huecoCitaId, fecha, hora, candidatoCitaId, nombrePila, citaActualFecha, citaActualHora, tokenHash, venceEn, estado)
+      VALUES (?, 'PAGO_VIVA', ?, ?, '10:00', 'c', 'Ana', ?, '11:00', ?, '2026-01-01T00:00:00Z', 'rechazada')`)
+    .run(id, 'h_' + id, fecha, citaActualFecha, 'hash_' + id);
+  oferta('O_VIEJA', '2026-09-20', '2026-09-22');     // las dos citas hace más de 7 días
+  oferta('O_SUYA_RECIENTE', '2026-09-20', '2026-09-28'); // su cita fue hace 3 días
+  const hayO = (id) => !!db.prepare('SELECT 1 FROM ofertas_hueco WHERE id = ?').get(id);
+  inf = revisarClinicas(db, { ahora: HOY });
+  prueba(inf.ofertasCaducadas && inf.ofertasCaducadas.cuantas === 1 && hayO('O_VIEJA'),
+    'en ENSAYO, cuenta la oferta vieja y NO la borra', JSON.stringify(inf.ofertasCaducadas));
+  inf = revisarClinicas(db, { ahora: HOY, modo: 'aplicar' });
+  prueba(!hayO('O_VIEJA') && hayO('O_SUYA_RECIENTE'),
+    'aplicando, se borra la oferta cuyas dos citas pasaron hace más de 7 días, y no la otra');
+
   console.log('\n── El registro de accesos al panel, 90 días ──');
   db.prepare("INSERT INTO admin_accesos (fecha, metodo, ruta, ip, aceptado) VALUES (?, 'GET', '/x', '1.1.1.1', 1)").run(dias(-91).toISOString());
   db.prepare("INSERT INTO admin_accesos (fecha, metodo, ruta, ip, aceptado) VALUES (?, 'GET', '/y', '1.1.1.1', 1)").run(dias(-10).toISOString());
