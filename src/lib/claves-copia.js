@@ -118,7 +118,17 @@ async function claveDeClinica(db, clinicaId, { env = process.env, fetchImpl = fe
   const prefijo = `${clinicaId}/`;
   const guardada = db.prepare('SELECT keyId, appKeyCifrada, prefijo FROM claves_copia WHERE clinicaId = ?').get(clinicaId);
   if (guardada) {
-    return { keyId: guardada.keyId, appKey: descifrar(guardada.appKeyCifrada, cifra),
+    let appKey;
+    try { appKey = descifrar(guardada.appKeyCifrada, cifra); }
+    catch (e) {
+      // Rotación de RELAY_COPIA_CLAVE (incidente de Railway, 22-10-2026): la fila se cifró con la
+      // anterior. Se lee con ella y se vuelve a cifrar con la nueva; sin anterior, el error de antes.
+      const anterior = claveDeCifrado({ RELAY_COPIA_CLAVE: env.RELAY_COPIA_CLAVE_ANTERIOR });
+      if (!anterior) throw e;
+      appKey = descifrar(guardada.appKeyCifrada, anterior);
+      db.prepare('UPDATE claves_copia SET appKeyCifrada = ? WHERE clinicaId = ?').run(cifrar(appKey, cifra), clinicaId);
+    }
+    return { keyId: guardada.keyId, appKey,
              bucket: cfg.bucket, region: cfg.region, prefijo: guardada.prefijo, nueva: false };
   }
 

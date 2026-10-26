@@ -94,6 +94,21 @@ const pedir = (cuerpo) => fetchReal(`http://127.0.0.1:${PORT}/api/copias/credenc
     const fila = db.prepare("SELECT * FROM claves_copia WHERE clinicaId = 'CLIN_A'").get();
     prueba(fila && !String(fila.appKeyCifrada).includes('SECRETO') && fila.keyId === 'clave-1', 'y se guarda CIFRADA, nunca en claro');
 
+    console.log('\n── Rotar RELAY_COPIA_CLAVE (incidente de Railway, 22-10-2026) ──');
+    const vieja = process.env.RELAY_COPIA_CLAVE;
+    process.env.RELAY_COPIA_CLAVE = crypto.randomBytes(32).toString('hex');
+    const rSin = await pedir({ licenseKey: 'KEY-VIVA', hardwareId: 'HW-A' });
+    prueba(rSin.status !== 200, 'sin la anterior, no se inventa la clave', String(rSin.status));
+    process.env.RELAY_COPIA_CLAVE_ANTERIOR = vieja;
+    const rRot = await pedir({ licenseKey: 'KEY-VIVA', hardwareId: 'HW-A' });
+    prueba(rRot.status === 200 && rRot.cuerpo.appKey === 'SECRETO-1' && nClaves === 1,
+      'con la anterior, devuelve la MISMA clave sin crear otra en Backblaze', JSON.stringify(rRot.cuerpo));
+    const filaRot = db.prepare("SELECT appKeyCifrada FROM claves_copia WHERE clinicaId = 'CLIN_A'").get();
+    prueba(filaRot.appKeyCifrada !== fila.appKeyCifrada, 'y la vuelve a cifrar con la nueva');
+    delete process.env.RELAY_COPIA_CLAVE_ANTERIOR;
+    const rDesp = await pedir({ licenseKey: 'KEY-VIVA', hardwareId: 'HW-A' });
+    prueba(rDesp.status === 200 && rDesp.cuerpo.appKey === 'SECRETO-1', 'después ya no hace falta la anterior');
+
     console.log('\n── Sin configurar en el servidor ──');
     delete process.env.RELAY_B2_GESTOR_APP_KEY;
     db.prepare("DELETE FROM claves_copia").run();
