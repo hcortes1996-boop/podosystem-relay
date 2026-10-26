@@ -156,6 +156,19 @@ try {
   prueba(!hayO('O_VIEJA') && hayO('O_SUYA_RECIENTE'),
     'aplicando, se borra la oferta cuyas dos citas pasaron hace más de 7 días, y no la otra');
 
+  console.log('\n── Códigos de un solo uso con IP: 30 días (26-10-2026) ──');
+  db.prepare(`INSERT INTO trial_verificaciones (id, trialId, hardwareId, codigoHash, creadoEn, expiraEn, ip)
+              VALUES ('TV_VIEJO', 't', 'hw', 'h', ?, ?, '1.2.3.4'), ('TV_NUEVO', 't', 'hw', 'h', ?, ?, '1.2.3.4')`)
+    .run(dias(-40).toISOString(), dias(-40).toISOString(), dias(-2).toISOString(), dias(-2).toISOString());
+  db.prepare(`INSERT INTO reasignaciones (id, licenciaId, codigoHash, creadoEn, expiraEn, ip)
+              VALUES ('RA_VIEJO', 'L', 'h', ?, ?, '1.2.3.4')`).run(dias(-40).toISOString(), dias(-40).toISOString());
+  inf = revisarClinicas(db, { ahora: HOY, modo: 'aplicar' });
+  prueba(!db.prepare("SELECT 1 FROM trial_verificaciones WHERE id='TV_VIEJO'").get() &&
+         !!db.prepare("SELECT 1 FROM trial_verificaciones WHERE id='TV_NUEVO'").get(),
+    'se borran los códigos de prueba de hace más de 30 días, y no los recientes');
+  const ra = db.prepare("SELECT ip FROM reasignaciones WHERE id='RA_VIEJO'").get();
+  prueba(ra && ra.ip === null, 'del cambio de equipo se conserva el historial sin la IP', JSON.stringify(ra));
+
   console.log('\n── El registro de accesos al panel, 90 días ──');
   db.prepare("INSERT INTO admin_accesos (fecha, metodo, ruta, ip, aceptado) VALUES (?, 'GET', '/x', '1.1.1.1', 1)").run(dias(-91).toISOString());
   db.prepare("INSERT INTO admin_accesos (fecha, metodo, ruta, ip, aceptado) VALUES (?, 'GET', '/y', '1.1.1.1', 1)").run(dias(-10).toISOString());

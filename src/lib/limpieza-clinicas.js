@@ -246,6 +246,8 @@ function revisarClinicas(db, { ahora = new Date(), modo = process.env.LIMPIEZA_M
     informe.purgas = {
       citasRemotasSincronizadas: cuenta('SELECT COUNT(*) AS n FROM citas_remote_ops WHERE syncedAt IS NOT NULL AND syncedAt < ?', hace7),
       solicitudesAntiguas: cuenta('SELECT COUNT(*) AS n FROM solicitudes WHERE creadaEn < ?', hace30),
+      codigosPrueba: cuenta('SELECT COUNT(*) AS n FROM trial_verificaciones WHERE creadoEn < ?', hace30),
+      ipsCambioEquipo: cuenta('SELECT COUNT(*) AS n FROM reasignaciones WHERE ip IS NOT NULL AND creadoEn < ?', hace30),
       pruebasSinContratar: cuenta(`SELECT COUNT(*) AS n FROM trials WHERE COALESCE(ultima_descarga, acepta_privacidad_en, creadaEn) < ? AND ${noCliente}`, hace12m),
       ipsDeEquipos: cuenta('SELECT COUNT(*) AS n FROM trial_instalaciones WHERE ip IS NOT NULL AND COALESCE(ultimaVista, primeraVista) < ?', hace12m),
       borradas: false,
@@ -256,6 +258,11 @@ function revisarClinicas(db, { ahora = new Date(), modo = process.env.LIMPIEZA_M
       corre(`DELETE FROM aceptaciones_legales WHERE para = 'prueba' AND fecha < ? AND ${noCliente}`, hace12m);
       corre(`DELETE FROM trials WHERE COALESCE(ultima_descarga, acepta_privacidad_en, creadaEn) < ? AND ${noCliente}`, hace12m);
       corre('UPDATE trial_instalaciones SET ip = NULL WHERE ip IS NOT NULL AND COALESCE(ultimaVista, primeraVista) < ?', hace12m);
+      // Códigos de un solo uso con la IP de quien los pidió (26-10-2026: no se purgaban nunca).
+      // El de la prueba no sirve de nada caducado; del cambio de equipo de una licencia se
+      // conserva el historial (qué equipo por cuál) y se quita la IP.
+      corre('DELETE FROM trial_verificaciones WHERE creadoEn < ?', hace30);
+      corre('UPDATE reasignaciones SET ip = NULL WHERE ip IS NOT NULL AND creadoEn < ?', hace30);
       informe.purgas.borradas = true;
     }
   } catch (e) {
