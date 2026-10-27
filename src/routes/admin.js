@@ -403,6 +403,8 @@ router.get('/api/diagnostico', authAdmin, (req, res) => {
       puedeFirmar: require('../firma').puedeFirmar(),
       remitente: process.env.SMTP_FROM || '(por defecto: PodoSystem <info@podosystem.es>)',
     },
+    // Con actuales === total, RELAY_COPIA_CLAVE_ANTERIOR ya no hace falta (incidente de Railway).
+    clavesCopia: require('../lib/claves-copia').recifrarTodas(req.db),
     // Solo los NOMBRES, nunca los valores. Sirve para encontrar una variable que la interfaz
     // de Railway no enseña — que es exactamente lo que pasó el 27-08.
     variables: Object.keys(process.env)

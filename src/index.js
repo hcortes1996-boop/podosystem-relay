@@ -153,4 +153,7 @@ app.listen(PORT, () => {
   } catch (e) {
     console.error('[copia-relay] no se pudo arrancar:', e.message);
   }
+  // Claves de copia de las clínicas cifradas con la RELAY_COPIA_CLAVE anterior (rotada el 26-10-2026)
+  const rc = require('./lib/claves-copia').recifrarTodas(db);
+  if (rc.total) console.log(`[copias] claves de clínica: ${rc.actuales}/${rc.total} con la clave actual (${rc.recifradas} re-cifradas, ${rc.ilegibles} ilegibles)`);
 });

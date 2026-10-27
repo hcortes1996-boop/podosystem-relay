@@ -105,6 +105,18 @@ const pedir = (cuerpo) => fetchReal(`http://127.0.0.1:${PORT}/api/copias/credenc
       'con la anterior, devuelve la MISMA clave sin crear otra en Backblaze', JSON.stringify(rRot.cuerpo));
     const filaRot = db.prepare("SELECT appKeyCifrada FROM claves_copia WHERE clinicaId = 'CLIN_A'").get();
     prueba(filaRot.appKeyCifrada !== fila.appKeyCifrada, 'y la vuelve a cifrar con la nueva');
+    // Al arrancar se re-cifran TODAS, aunque ningún PC pida la suya
+    const { recifrarTodas } = require('../src/lib/claves-copia');
+    const nueva2 = crypto.randomBytes(32).toString('hex');
+    const envRot = { RELAY_COPIA_CLAVE: nueva2, RELAY_COPIA_CLAVE_ANTERIOR: process.env.RELAY_COPIA_CLAVE };
+    prueba(JSON.stringify(recifrarTodas(db, { env: { RELAY_COPIA_CLAVE: nueva2 } })) === '{"total":1,"actuales":0,"recifradas":0,"ilegibles":1}',
+      'sin la anterior, dice que hay una ilegible y no la toca');
+    prueba(JSON.stringify(recifrarTodas(db, { env: envRot })) === '{"total":1,"actuales":1,"recifradas":1,"ilegibles":0}',
+      'con la anterior, la re-cifra al arrancar');
+    prueba(JSON.stringify(recifrarTodas(db, { env: { RELAY_COPIA_CLAVE: nueva2 } })) === '{"total":1,"actuales":1,"recifradas":0,"ilegibles":0}',
+      'y después todas están con la actual: la anterior ya se puede quitar');
+    process.env.RELAY_COPIA_CLAVE = nueva2;
+
     delete process.env.RELAY_COPIA_CLAVE_ANTERIOR;
     const rDesp = await pedir({ licenseKey: 'KEY-VIVA', hardwareId: 'HW-A' });
     prueba(rDesp.status === 200 && rDesp.cuerpo.appKey === 'SECRETO-1', 'después ya no hace falta la anterior');

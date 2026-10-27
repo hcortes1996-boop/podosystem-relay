@@ -178,5 +178,32 @@ async function revocarPorKeyId(keyId, { env = process.env, fetchImpl = fetch } =
   }
 }
 
-module.exports = { claveDeClinica, revocarClave, revocarPorKeyId, configuracion, gestor, CAPACIDADES_CLINICA, asegurarTabla,
+/**
+ * Al arrancar: vuelve a cifrar con la RELAY_COPIA_CLAVE actual las claves que siguen con la
+ * anterior. Sin esto, la de una clínica cuyo PC ya tiene la suya guardada no se re-cifraría nunca
+ * y RELAY_COPIA_CLAVE_ANTERIOR —filtrada en el incidente de Railway— no se podría quitar.
+ * `{ total, actuales, recifradas, ilegibles }`: con `actuales === total`, la anterior sobra. No lanza.
+ */
+function recifrarTodas(db, { env = process.env } = {}) {
+  const r = { total: 0, actuales: 0, recifradas: 0, ilegibles: 0 };
+  try {
+    const cifra = claveDeCifrado(env);
+    if (!cifra) return r;
+    asegurarTabla(db);
+    const anterior = claveDeCifrado({ RELAY_COPIA_CLAVE: env.RELAY_COPIA_CLAVE_ANTERIOR });
+    const upd = db.prepare('UPDATE claves_copia SET appKeyCifrada = ? WHERE clinicaId = ?');
+    for (const f of db.prepare('SELECT clinicaId, appKeyCifrada FROM claves_copia').all()) {
+      r.total++;
+      try { descifrar(f.appKeyCifrada, cifra); r.actuales++; continue; } catch (_) {}
+      try {
+        if (!anterior) throw new Error('sin anterior');
+        upd.run(cifrar(descifrar(f.appKeyCifrada, anterior), cifra), f.clinicaId);
+        r.recifradas++; r.actuales++;
+      } catch (_) { r.ilegibles++; }
+    }
+  } catch (_) {}
+  return r;
+}
+
+module.exports = { claveDeClinica, revocarClave, recifrarTodas, revocarPorKeyId, configuracion, gestor, CAPACIDADES_CLINICA, asegurarTabla,
                    _cifrar: cifrar, _descifrar: descifrar, _claveDeCifrado: claveDeCifrado };
