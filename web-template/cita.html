@@ -1852,6 +1852,23 @@
         pintarMotivos(data.motivos);
         listaEsperaWeb(data.listaEsperaWeb === true);
 
+        // Con servicios configurados, sin servicio elegido NO se enseñan horas (11-11-2026).
+        // Antes se pintaba la rejilla con la duración por defecto: el paciente marcaba una
+        // hora, llegaba a «Tus datos» y le saltaba «Servicio que necesita» en un campo que
+        // estaba OCULTO — sin forma de arreglarlo. Muchos pacientes de Francisco lo dejaban ahí.
+        const wrapMotivo = document.getElementById('motivo-previo-wrap');
+        if (wrapMotivo && wrapMotivo.style.display !== 'none' && !motivoSeleccionado) {
+          const selPrevio = document.getElementById('motivo-previo');
+          if (selPrevio) selPrevio.style.border = '2px solid #e67e22';
+          document.getElementById('week-label').textContent = 'Elija primero el servicio';
+          document.getElementById('week-grid').innerHTML =
+            '<p style="color:#b45309;font-weight:600;font-size:.95rem;padding:28px 0;text-align:center;grid-column:1/-1;">' +
+            '⬆️ Elija primero el servicio que necesita y le enseñamos las horas libres.</p>';
+          return;
+        }
+        const selPrevioOk = document.getElementById('motivo-previo');
+        if (selPrevioOk) selPrevioOk.style.border = '1px solid #d9e2ec';
+
         renderWeekGrid(data);
         updateNavButtons();
       } catch (e) {
@@ -2083,6 +2100,14 @@
     document.getElementById('cita-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       if (!selectedFecha || !selectedHora) { showStep(1); return; }
+
+      // Red de seguridad: si el servicio falta y su campo está oculto aquí, no se puede
+      // pedir que lo rellene en este paso. Se le enseña el campo en vez de un error sin salida.
+      const motivoFinal = document.getElementById('motivo');
+      const grupoMotivo = motivoFinal && motivoFinal.closest('.form-group');
+      if (motivoFinal && !motivoFinal.value.trim() && grupoMotivo && grupoMotivo.style.display === 'none') {
+        grupoMotivo.style.display = '';
+      }
 
       const CAMPOS = {
         nombre:     'Nombre completo',
