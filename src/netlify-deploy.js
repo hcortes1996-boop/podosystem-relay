@@ -274,8 +274,11 @@ function conMenuDeWeb(html) {
     `\n${sangria}<a href="#pedir-cita"${conClase ? ' class="nav-cta"' : ''}>Pedir Cita</a>`;
   let cambios = 0;
   const out = html
-    .replace(/(<nav class="nav-menu"[^>]*>\n)[\s\S]*?(\n\s*<\/nav>)/, (_, a, b) => { cambios++; return a + enlaces('        ', true) + b; })
-    .replace(/(<nav class="footer-nav"[^>]*>\n)[\s\S]*?(\n\s*<\/nav>)/, (_, a, b) => { cambios++; return a + enlaces('        ', false) + b; })
+    // `\r?\n` (11-11-2026): en Windows git deja la plantilla con CRLF y con `\n` a secas el menú
+    // no se encontraba — las pruebas fallaban en el PC y pasaban en Railway (Linux, LF). Y
+    // `generar-web-clinica.js` se ejecuta en el PC: habría sacado una web con el menú viejo.
+    .replace(/(<nav class="nav-menu"[^>]*>\r?\n)[\s\S]*?(\r?\n\s*<\/nav>)/, (_, a, b) => { cambios++; return a + enlaces('        ', true) + b; })
+    .replace(/(<nav class="footer-nav"[^>]*>\r?\n)[\s\S]*?(\r?\n\s*<\/nav>)/, (_, a, b) => { cambios++; return a + enlaces('        ', false) + b; })
     .replace(/<a href="#hero" class="header-logo"/g, () => { cambios++; return '<a href="index.html" class="header-logo"'; })
     .replace(/<a href="#hero" aria-label="Inicio">/g, () => { cambios++; return '<a href="index.html" aria-label="Inicio">'; });
   return { html: out, cambios };
