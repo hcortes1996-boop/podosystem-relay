@@ -647,7 +647,7 @@ async function loadResumen() {
       </div>
       <div class="flex items-center gap-2">
         <span class="px-2 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">${i.diasRestantes === 1 ? '1 día' : i.diasRestantes + ' días'}</span>
-        ${i.persona && i.persona.telefono ? botonWhatsApp(i.persona.telefono, i.persona.nombre, i.diasRestantes) : ''}
+        ${i.persona && i.persona.telefono ? botonWhatsApp(i.persona.telefono, i.persona.nombre, i.diasRestantes, i.persona.provincia) : ''}
       </div>
     </div>`).join('') : '<p class="px-4 py-3 text-sm text-gray-400">Ninguna.</p>';
 
@@ -662,10 +662,33 @@ async function loadResumen() {
 }
 
 // WhatsApp con el mensaje ya escrito. Solo se abre: lo envía Francisco, desde su móvil o su PC.
-function botonWhatsApp(telefono, nombre, diasRestantes) {
-  let t = String(telefono || '').replace(/\D/g, '');
-  if (t.length === 9) t = '34' + t;
-  if (t.length < 11) return '';
+// El +34 solo se pone si la persona es de España. Antes se ponía a cualquier número de 9 cifras, y
+// una podóloga de Chile (+56 9…) se convertía en un fijo de Castellón: le escribías a un desconocido.
+const PROVINCIAS_ES = ('alava araba albacete alicante alacant almeria asturias avila badajoz barcelona burgos caceres cadiz ' +
+  'cantabria castellon castello cordoba coruna a coruna la coruna cuenca girona gerona granada guadalajara gipuzkoa ' +
+  'guipuzcoa huelva huesca baleares illes balears islas baleares mallorca menorca ibiza jaen leon lleida lerida rioja la rioja lugo ' +
+  'madrid malaga murcia navarra nafarroa ourense orense palencia palmas canaria lanzarote fuerteventura pontevedra ' +
+  'salamanca tenerife segovia sevilla soria tarragona teruel toledo valencia valladolid bizkaia vizcaya ' +
+  'zamora zaragoza ceuta melilla espana canarias galicia andalucia cataluna catalunya pais vasco euskadi aragon extremadura ' +
+  'castilla mancha').split(' ');
+function esDeEspana(provincia) {
+  const p = String(provincia || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z ]/g, ' ').trim();
+  if (!p) return true;                         // sin provincia: lo normal es España
+  const palabras = p.split(/\s+/);
+  return /ciudad real|santa cruz de tenerife|gran canaria/.test(p) || palabras.some(w => w.length > 2 && PROVINCIAS_ES.includes(w));
+}
+function telefonoWhatsApp(telefono, provincia) {
+  const crudo = String(telefono || '').trim();
+  let t = crudo.replace(/\D/g, '');
+  if (/^00/.test(t)) t = t.slice(2);
+  if (crudo.startsWith('+') || /^00/.test(crudo.replace(/\s/g, ''))) return t.length >= 10 ? t : '';   // ya trae su prefijo
+  if (t.length === 9 && /^[6789]/.test(t) && esDeEspana(provincia)) return '34' + t;
+  if (t.length === 11 && t.startsWith('34')) return t;
+  return '';                                   // de fuera y sin prefijo: no adivinar
+}
+function botonWhatsApp(telefono, nombre, diasRestantes, provincia) {
+  const t = telefonoWhatsApp(telefono, provincia);
+  if (!t) return telefono ? `<span class="text-[10px] text-amber-700 whitespace-nowrap" title="No es de España o no trae prefijo: escríbele a mano con el prefijo de su país">🌍 sin prefijo</span>` : '';
   const nombrePila = String(nombre || '').trim().split(/\s+/)[0] || '';
   const cuando = diasRestantes != null && diasRestantes <= 7
     ? `Te quedan ${diasRestantes === 1 ? 'un día' : diasRestantes + ' días'} de prueba y quería saber`
@@ -1186,7 +1209,7 @@ async function loadTrials() {
             class="w-48 text-xs px-2 py-1.5 border-2 border-gray-200 rounded-lg focus:outline-none focus:border-blue-500">${esc(t.notas_admin || '')}</textarea>
         </td>
         <td class="px-4 py-3 whitespace-nowrap">
-          ${botonWhatsApp(t.telefono, t.nombre, eq ? eq.diasRestantes : null)}
+          ${botonWhatsApp(t.telefono, t.nombre, eq ? eq.diasRestantes : null, t.provincia)}
           <button onclick="borrarTrial('${t.id}', '${esc(t.nombre)}')" title="Borrar sus datos (si lo pide, o si era una prueba tuya)"
             class="ml-1 text-xs px-2.5 py-1.5 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 font-medium">Borrar</button>
         </td>

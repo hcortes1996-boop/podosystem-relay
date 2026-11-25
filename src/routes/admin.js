@@ -449,7 +449,7 @@ router.get('/api/resumen', authAdmin, async (req, res) => {
   const acabanPronto = enMarcha.filter(i => i.diasRestantes <= 7)
     .sort((a, b) => a.diasRestantes - b.diasRestantes)
     .map(i => ({ huella: String(i.hardwareId).slice(0, 8), diasRestantes: i.diasRestantes, version: i.version,
-                 persona: i.trialId ? { trialId: i.trialId, nombre: i.nombre, telefono: i.telefono, clinica: i.clinica, seguimiento: i.seguimiento } : null }));
+                 persona: i.trialId ? { trialId: i.trialId, nombre: i.nombre, telefono: i.telefono, clinica: i.clinica, provincia: i.provincia, seguimiento: i.seguimiento } : null }));
   const descargas = req.db.prepare('SELECT creadaEn, seguimiento FROM trials').all();
   const hace30 = new Date(ahora - 30 * DIA).toISOString();
   const sinContactar = descargas.filter(t => !t.seguimiento || t.seguimiento === 'sin_contactar').length;
